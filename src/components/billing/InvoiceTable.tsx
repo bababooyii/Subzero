@@ -1,16 +1,17 @@
 "use client";
 
 import { Banknote, CircleCheck, Receipt } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { DataTable, type TableColumn } from "@/components/ui/DataTable";
+import { RecordPaymentDialog, type PayableInvoice } from "@/components/payments/RecordPaymentDialog";
+import { DataTable, type TableColumn, type TablePagingProp } from "@/components/ui/DataTable";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { toast } from "@/components/ui/toast";
+import { bulkConfirmInvoicesAction, bulkSendInvoicesAction } from "@/features/invoices/actions";
+import type { InvoiceRow } from "@/features/invoices/queries";
 import { formatDate, formatMoney } from "@/lib/format";
-import { TODAY_ISO } from "@/lib/mock/clock";
-import type { InvoiceRow } from "@/lib/mock/selectors-billing";
 import { btnPrimary, btnSecondary, btnSquare } from "@/lib/ui";
-import { PaymentDialog } from "./PaymentDialog";
-import type { PayableInvoice } from "@/components/payments/RecordPaymentDialog";
+import { statusKeyOf } from "./invoice-types";
 
 const columns: TableColumn<InvoiceRow>[] = [
   {
@@ -19,14 +20,14 @@ const columns: TableColumn<InvoiceRow>[] = [
     cell: ({ row }) => <span className="font-medium whitespace-nowrap text-text tabular-nums">{row.original.number}</span>,
   },
   {
-    accessorKey: "customer",
+    accessorKey: "customerName",
     header: "Customer",
-    cell: ({ row }) => <span className="block max-w-[260px] truncate">{row.original.customer}</span>,
+    cell: ({ row }) => <span className="block max-w-[260px] truncate">{row.original.customerName}</span>,
   },
   {
-    accessorKey: "issueDate",
+    accessorKey: "issuedOn",
     header: "Issued",
-    cell: ({ row }) => <span className="whitespace-nowrap text-muted">{formatDate(row.original.issueDate)}</span>,
+    cell: ({ row }) => <span className="whitespace-nowrap text-muted">{formatDate(row.original.issuedOn)}</span>,
   },
   {
     accessorKey: "dueDate",
@@ -34,11 +35,13 @@ const columns: TableColumn<InvoiceRow>[] = [
     cell: ({ row }) => <span className="whitespace-nowrap text-muted">{formatDate(row.original.dueDate)}</span>,
   },
   {
-    accessorKey: "status",
+    accessorKey: "displayStatus",
     header: "Status",
+    // The server can't sort by the derived status.
+    enableSorting: false,
     cell: ({ row }) => (
       <span className="whitespace-nowrap">
-        <StatusDot status={row.original.status} />
+        <StatusDot status={statusKeyOf(row.original.displayStatus)} />
       </span>
     ),
   },
@@ -51,50 +54,58 @@ const columns: TableColumn<InvoiceRow>[] = [
   {
     accessorKey: "balance",
     header: "Balance",
-    cell: ({ row }) => (row.original.balance > 0 ? formatMoney(row.original.balance) : <span className="text-muted">–</span>),
+    cell: ({ row }) => (isOpen(row.original) ? formatMoney(row.original.balance) : <span className="text-muted">–</span>),
     meta: { align: "right", className: "whitespace-nowrap" },
   },
 ];
 
-const canSend = (r: InvoiceRow) => r.status === "confirmed" || r.status === "partial" || r.status === "overdue";
+/** Only confirmed invoices carry a balance. */
+const isOpen = (r: InvoiceRow) => r.status === "confirmed" && r.balance > 0;
+const canSend = (r: InvoiceRow) => r.status === "confirmed";
+const plural = (n: number) => `${n} ${n === 1 ? "invoice" : "invoices"}`;
 
-/** Invoices list. Confirming and recording payments update this table locally (mock data is read-only). */
-export function InvoiceTable({ rows, emptyTitle, emptySubtitle }: { rows: InvoiceRow[]; emptyTitle: string; emptySubtitle: string }) {
-  const [edits, setEdits] = useState<Record<string, Partial<InvoiceRow>>>({});
+/** Invoices list (server-paged). Confirm, send and record payment run through the invoice and payment actions, then the page refreshes. */
+export function InvoiceTable({
+  rows,
+  paging,
+  emptyTitle,
+  emptySubtitle,
+}: {
+  rows: InvoiceRow[];
+  paging: TablePagingProp;
+  emptyTitle: string;
+  emptySubtitle: string;
+}) {
+  const router = useRouter();
   const [target, setTarget] = useState<PayableInvoice | null>(null);
 
-  const data = rows.map((r) => (edits[r.id] ? { ...r, ...edits[r.id] } : r));
-  const patch = (list: Record<string, Partial<InvoiceRow>>) => setEdits((e) => ({ ...e, ...list }));
-  const unpatch = (ids: string[]) =>
-    setEdits((e) => {
-      const next = { ...e };
-      ids.forEach((id) => delete next[id]);
-      return next;
-    });
-
-  const confirm = (drafts: InvoiceRow[]) => {
-    patch(
-      Object.fromEntries(
-        drafts.map((r) => [r.id, { status: r.dueDate < TODAY_ISO ? "overdue" : "confirmed", balance: r.total } as Partial<InvoiceRow>]),
-      ),
+  const bulk = async (kind: "confirm" | "send", list: InvoiceRow[], clear: () => void) => {
+    const ids = list.map((r) => r.id);
+    const res = kind === "confirm" ? await bulkConfirmInvoicesAction(ids) : await bulkSendInvoicesAction(ids);
+    if (!res.ok) {
+      toast(res.error);
+      return;
+    }
+    clear();
+    const { done, failed } = res.data;
+    const verb = kind === "confirm" ? "Confirmed" : "Sent";
+    toast(
+      failed.length > 0
+        ? `${verb} ${plural(done.length)}, ${failed.length} failed: ${failed[0].error}`
+        : kind === "confirm"
+          ? `${verb} ${plural(done.length)}`
+          : `${verb} ${plural(done.length)} to customers`,
     );
-    toast.undo(`Confirmed ${drafts.length} ${drafts.length === 1 ? "invoice" : "invoices"}`, () => unpatch(drafts.map((r) => r.id)));
-  };
-
-  const recorded = (row: PayableInvoice, amount: number) => {
-    const src = data.find((r) => r.id === row.id);
-    if (!src) return;
-    const balance = src.balance - amount;
-    patch({ [row.id]: { balance, status: balance <= 0 ? "paid" : src.status === "overdue" ? "overdue" : "partial" } });
-    toast.undo(`Recorded ${formatMoney(amount)} for ${row.number}`, () => unpatch([row.id]));
+    router.refresh();
   };
 
   return (
     <>
       <DataTable
         aria-label="Invoices"
-        data={data}
+        data={rows}
         columns={columns}
+        paging={paging}
         getRowId={(r) => r.id}
         getRowHref={(r) => `/invoices/${r.id}`}
         selectable
@@ -107,10 +118,7 @@ export function InvoiceTable({ rows, emptyTitle, emptySubtitle }: { rows: Invoic
                 type="button"
                 className={`${btnSecondary} h-7`}
                 disabled={sendable.length === 0}
-                onClick={() => {
-                  toast(`Sent ${sendable.length} ${sendable.length === 1 ? "invoice" : "invoices"} to customers`);
-                  clear();
-                }}
+                onClick={() => void bulk("send", sendable, clear)}
               >
                 Send{sendable.length ? ` (${sendable.length})` : ""}
               </button>
@@ -118,10 +126,7 @@ export function InvoiceTable({ rows, emptyTitle, emptySubtitle }: { rows: Invoic
                 type="button"
                 className={`${btnPrimary} h-7`}
                 disabled={drafts.length === 0}
-                onClick={() => {
-                  confirm(drafts);
-                  clear();
-                }}
+                onClick={() => void bulk("confirm", drafts, clear)}
               >
                 Confirm{drafts.length ? ` (${drafts.length})` : ""}
               </button>
@@ -129,22 +134,21 @@ export function InvoiceTable({ rows, emptyTitle, emptySubtitle }: { rows: Invoic
           );
         }}
         rowActions={(r) =>
-          r.balance > 0 ? (
+          isOpen(r) ? (
             <button
               type="button"
               className={btnSquare}
               aria-label={`Record payment for ${r.number}`}
               title="Record payment"
-              onClick={() => setTarget({ id: r.id, number: r.number, customer: r.customer, balance: r.balance })}
+              onClick={() => setTarget({ id: r.id, number: r.number, customer: r.customerName, balance: r.balance })}
             >
               <Banknote size={15} />
             </button>
           ) : null
         }
-        initialSorting={[]}
         empty={{ icon: emptyTitle.startsWith("No") ? <CircleCheck /> : <Receipt />, title: emptyTitle, subtitle: emptySubtitle }}
       />
-      <PaymentDialog invoice={target} onOpenChange={(o) => !o && setTarget(null)} onRecord={(p) => target && recorded(target, p.amount)} />
+      <RecordPaymentDialog invoice={target} onOpenChange={(o) => !o && setTarget(null)} />
     </>
   );
 }

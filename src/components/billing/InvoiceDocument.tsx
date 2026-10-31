@@ -2,8 +2,8 @@ import { Check } from "lucide-react";
 import { Stamp } from "@/components/kitchen/Stamp";
 import { cn } from "@/helpers/classname-helper";
 import { formatDateLong, formatMoney } from "@/lib/format";
-import type { InvoiceLineView } from "@/lib/mock/selectors-billing";
-import type { InvoiceStatus } from "@/lib/mock/types";
+import type { InvoiceStatus } from "@/features/invoices/schemas";
+import type { InvoiceLineView } from "./invoice-types";
 
 export type InvoiceDocData = {
   number: string;

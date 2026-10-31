@@ -1,10 +1,14 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
+import { isUuid, subscriptionInfo } from "@/app/(app)/invoices/detail";
 import { InvoiceDocument } from "@/components/billing/InvoiceDocument";
 import { PrintButton } from "@/components/billing/PrintButton";
-import { invoiceDetail } from "@/lib/mock/selectors-billing";
+import { toLineView } from "@/components/billing/invoice-types";
+import { db } from "@/db/client";
+import { getInvoiceForPrint } from "@/features/portal/queries";
+import { requireActor, UnauthorizedError } from "@/lib/auth/session";
 
 export const metadata = { title: "Invoice · Brightloop" };
 
@@ -21,14 +25,26 @@ export default function Page(props: PageProps<"/invoices/[id]/print">) {
 
 async function Content({ params }: PageProps<"/invoices/[id]/print">) {
   const { id } = await params;
-  const d = invoiceDetail(id);
-  if (!d) notFound();
+  if (!isUuid(id)) notFound();
+  let actor;
+  try {
+    actor = await requireActor();
+  } catch (err) {
+    if (err instanceof UnauthorizedError) redirect("/login");
+    throw err;
+  }
+  // Staff and admins can print any invoice; a customer only their own (non-draft) ones.
+  const print = await getInvoiceForPrint(db, actor, id);
+  if (!print) notFound();
+  const d = print.invoice;
+  const sub = await subscriptionInfo(d.subscriptionId);
   const open = d.status === "confirmed";
   const balance = open ? Math.max(0, d.total - d.amountPaid) : 0;
+  const backHref = actor.role === "customer" ? "/portal" : `/invoices/${d.id}`;
   return (
     <div className="px-4 py-6 print:p-0">
       <div className="mx-auto mb-4 flex w-[210mm] max-w-full items-center justify-between print:hidden">
-        <Link href={`/invoices/${d.id}`} className={toolbarBtn}>
+        <Link href={backHref} className={toolbarBtn}>
           <ArrowLeft size={14} /> Back to invoice
         </Link>
         <PrintButton className={toolbarBtn} />
@@ -39,22 +55,28 @@ async function Content({ params }: PageProps<"/invoices/[id]/print">) {
           data={{
             number: d.number,
             status: d.status,
-            customer: d.customer,
-            subscriptionNumber: d.subscription?.number,
-            planName: d.subscription?.planName,
-            paymentTerms: d.subscription?.paymentTerms,
+            customer: {
+              name: print.customer.name,
+              contactName: print.customer.company ?? "",
+              email: print.customer.email,
+              city: print.customer.address ?? "",
+              gstin: print.customer.gstin ?? "",
+            },
+            subscriptionNumber: sub?.number,
+            planName: sub?.planName,
+            paymentTerms: sub?.paymentTerms,
             periodStart: d.periodStart,
             periodEnd: d.periodEnd,
-            issueDate: d.issueDate,
+            issueDate: d.issuedOn,
             dueDate: d.dueDate,
-            lines: d.lines,
+            lines: d.lines.map(toLineView),
             subtotal: d.subtotal,
             discountTotal: d.discountTotal,
             taxTotal: d.taxTotal,
             total: d.total,
             amountPaid: d.amountPaid,
             balance,
-            paidOn: d.payments[0]?.date,
+            paidOn: d.payments.at(-1)?.paidOn,
           }}
         />
       </div>

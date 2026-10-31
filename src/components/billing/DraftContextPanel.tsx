@@ -4,8 +4,8 @@ import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { sectionTitle, surface } from "@/lib/ui";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { DraftInvoice } from "@/lib/mock/selectors-billing";
-import { INTERVAL_LABEL, METHOD_LABEL } from "./draft";
+import { type DraftInvoice, INTERVAL_LABEL, METHOD_LABEL } from "./draft";
+import { statusKeyOf } from "./invoice-types";
 import { periodLabel } from "./period";
 
 /** Right column of the billing run: the subscription behind the invoice and the customer's latest invoices. Plain content, no card (adaptation §6); scrolls inside its column. */
@@ -31,7 +31,7 @@ export function DraftContextPanel({ draft }: { draft: DraftInvoice }) {
           <div>
             <p className="text-[12px] text-muted">Subscription</p>
             <h2 className="mt-1 text-lg font-medium tracking-tight text-text">{draft.customerName}</h2>
-            <p className="text-[12px] text-muted">{draft.city}</p>
+            <p className="text-[12px] text-muted">{draft.location}</p>
           </div>
           {c.overdueCount > 0 ? (
             <p className="flex items-start gap-2 text-[13px] text-[#f43f5e]" role="alert">
@@ -65,7 +65,7 @@ export function DraftContextPanel({ draft }: { draft: DraftInvoice }) {
                       <span className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted">
                         {formatDate(i.issueDate)}
                         <span aria-hidden="true">·</span>
-                        <StatusDot status={i.status} />
+                        <StatusDot status={statusKeyOf(i.status)} />
                       </span>
                     </span>
                     <span className="shrink-0 text-text tabular-nums">{formatMoney(i.total)}</span>

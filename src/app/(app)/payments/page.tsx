@@ -1,13 +1,16 @@
 import { CreditCard } from "lucide-react";
 import { Suspense } from "react";
-import { METHOD_LABEL } from "@/components/billing/draft";
+import { METHOD_LABEL, PAYMENT_METHODS, type PaymentMethod } from "@/components/billing/draft";
 import { PaymentsTable } from "@/components/billing/PaymentsTable";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews, type SavedView } from "@/components/ui/SavedViews";
 import { StatTile } from "@/components/ui/StatTile";
-import { formatMoneyCompact } from "@/lib/format";
-import { PAYMENT_METHODS, type PaymentMethodView, paymentMethodTotals, paymentRows } from "@/lib/mock/selectors-billing";
+import { db } from "@/db/client";
+import { listPayments } from "@/features/payments/queries";
+import { formatMoneyCompact, formatNumber } from "@/lib/format";
+import { readPaging } from "@/lib/table-params";
+import { paymentMethodTotals } from "./totals";
 
 export const metadata = { title: "Payments · Brightloop" };
 
@@ -22,11 +25,14 @@ export default function Page(props: PageProps<"/payments">) {
 async function Payments({ searchParams }: PageProps<"/payments">) {
   const sp = await searchParams;
   const param = typeof sp.method === "string" ? sp.method : "all";
-  const method: PaymentMethodView = (PAYMENT_METHODS as string[]).includes(param) ? (param as PaymentMethodView) : "all";
+  const method: PaymentMethod | "all" = (PAYMENT_METHODS as string[]).includes(param) ? (param as PaymentMethod) : "all";
+  const paging = readPaging(sp);
 
-  const totals = paymentMethodTotals();
-  const rows = paymentRows(method);
-  const shown = rows.reduce((n, r) => n + r.amount, 0);
+  const [totals, list] = await Promise.all([
+    paymentMethodTotals(),
+    listPayments(db, { ...paging, method: method === "all" ? undefined : method }),
+  ]);
+  const shown = method === "all" ? totals.total : (totals.methods.find((m) => m.method === method)?.amount ?? 0);
 
   const views: SavedView[] = [
     { key: "all", label: "All", href: "/payments" },
@@ -40,7 +46,7 @@ async function Payments({ searchParams }: PageProps<"/payments">) {
         <>
           <Intro
             icon={<CreditCard />}
-            title={`${rows.length} ${rows.length === 1 ? "payment" : "payments"}`}
+            title={`${formatNumber(list.total)} ${list.total === 1 ? "payment" : "payments"}`}
             subtitle={`${formatMoneyCompact(shown)} received${method === "all" ? "" : ` by ${METHOD_LABEL[method]}`}`}
           />
           <SavedViews views={views} active={method} aria-label="Payment methods" />
@@ -62,7 +68,11 @@ async function Payments({ searchParams }: PageProps<"/payments">) {
           ))}
         </div>
         <div className="min-h-0 flex-1">
-          <PaymentsTable key={method} rows={rows} />
+          <PaymentsTable
+            key={method}
+            rows={list.rows}
+            paging={{ total: list.total, page: list.page, pageSize: list.pageSize }}
+          />
         </div>
       </div>
     </PageGrid>

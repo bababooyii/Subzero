@@ -2,94 +2,65 @@
 
 import { Ban, Banknote, Check, Printer, Receipt, Send } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { ScrambleText } from "@/components/kitchen/ScrambleText";
+import { RecordPaymentDialog } from "@/components/payments/RecordPaymentDialog";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { StatusDot, type StatusKey } from "@/components/ui/StatusDot";
-import { Timeline, type TimelineEvent } from "@/components/ui/Timeline";
+import { Timeline } from "@/components/ui/Timeline";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/helpers/classname-helper";
+import { cancelInvoiceAction, confirmInvoiceAction, sendInvoiceAction } from "@/features/invoices/actions";
+import type { ActionResult } from "@/lib/action-result";
 import { formatDate, formatMoney, formatPeriod } from "@/lib/format";
-import { TODAY, TODAY_ISO } from "@/lib/mock/clock";
-import type { InvoiceDetail, PaymentRow } from "@/lib/mock/selectors-billing";
-import type { InvoiceStatus } from "@/lib/mock/types";
 import { btnPrimary, btnSecondary, heroBody, heroFrame, sectionTitle, surface } from "@/lib/ui";
 import { METHOD_LABEL } from "./draft";
 import { InvoiceDocument } from "./InvoiceDocument";
 import { InvoiceStepper } from "./InvoiceStepper";
-import { type NewPayment, PaymentDialog } from "./PaymentDialog";
+import { type InvoiceDetail, statusKeyOf } from "./invoice-types";
 
-/** Record page for one invoice (design-adaptation §5). Actions change local state only. */
+/** Record page for one invoice (design-adaptation §5). Actions run on the server, then the page refreshes. */
 export function InvoiceView({ detail }: { detail: InvoiceDetail }) {
-  const [status, setStatus] = useState<InvoiceStatus>(detail.status);
-  const [paid, setPaid] = useState(detail.amountPaid);
-  const [payments, setPayments] = useState<PaymentRow[]>(detail.payments);
-  const [events, setEvents] = useState<TimelineEvent[]>(detail.events);
-  const [sent, setSent] = useState(detail.status !== "draft");
+  const router = useRouter();
   const [paying, setPaying] = useState(false);
+  const [busy, setBusy] = useState(false);
 
+  const { status, payments, events } = detail;
+  const paid = detail.amountPaid;
   const open = status === "confirmed";
+  const sent = detail.sent;
   const balance = open ? Math.max(0, detail.total - paid) : 0;
-  const overdue = open && balance > 0 && detail.dueDate < TODAY_ISO;
-  const display: StatusKey = overdue ? "overdue" : open && paid > 0 && balance > 0 ? "partial" : status;
+  const display: StatusKey = statusKeyOf(detail.displayStatus);
   const lastPaid = payments[0]?.date;
 
-  const log = (text: string) => setEvents((e) => [{ id: `local-${e.length}`, at: TODAY.toISOString(), text }, ...e]);
-
-  const confirmInvoice = () => {
-    setStatus("confirmed");
-    log(`Invoice ${detail.number} confirmed by you`);
-    toast.undo(`Confirmed ${detail.number}`, () => {
-      setStatus("draft");
-      setSent(false);
-      setEvents((e) => e.slice(1));
-    });
+  /** Runs an invoice action; shows the error in a toast, or `done` and a refresh on success. */
+  const run = async (action: () => Promise<ActionResult<unknown>>, done: string) => {
+    setBusy(true);
+    try {
+      const res = await action();
+      if (!res.ok) {
+        toast(res.error);
+        return;
+      }
+      toast(done);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const sendInvoice = () => {
-    setSent(true);
-    log(`Invoice ${detail.number} sent to ${detail.customer.email || detail.customer.name}`);
-    toast(`Sent ${detail.number} to ${detail.customer.email || detail.customer.name}`);
-  };
+  const confirmInvoice = () => run(() => confirmInvoiceAction(detail.id), `Confirmed ${detail.number}`);
+  const sendInvoice = () =>
+    run(() => sendInvoiceAction(detail.id), `Sent ${detail.number} to ${detail.customer.email || detail.customer.name}`);
+  const cancelInvoice = () => run(() => cancelInvoiceAction(detail.id), `Cancelled ${detail.number}`);
 
-  const recordPayment = (p: NewPayment) => {
-    const prev = { status, paid, payments, events };
-    const nextPaid = paid + p.amount;
-    const row: PaymentRow = {
-      id: `local-pay-${payments.length}`,
-      date: p.date,
-      invoiceId: detail.id,
-      invoiceNumber: detail.number,
-      customerId: detail.customer.id,
-      customer: detail.customer.name,
-      method: p.method,
-      amount: p.amount,
-      note: p.note,
-    };
-    setPaid(nextPaid);
-    setPayments([row, ...payments]);
-    if (nextPaid >= detail.total) setStatus("paid");
-    log(`Payment of ${formatMoney(p.amount)} received via ${METHOD_LABEL[p.method]}`);
-    toast.undo(`Recorded ${formatMoney(p.amount)} for ${detail.number}`, () => {
-      setStatus(prev.status);
-      setPaid(prev.paid);
-      setPayments(prev.payments);
-      setEvents(prev.events);
-    });
-  };
-
-  const cancelInvoice = () => {
-    setStatus("cancelled");
-    log(`Invoice ${detail.number} cancelled by you`);
-    toast(`Cancelled ${detail.number}`);
-  };
-
-  const canCancel = (status === "draft" || status === "confirmed") && paid === 0;
+  const canCancel = detail.canCancel;
   const primary =
-    status === "draft"
+    detail.canConfirm
       ? { label: "Confirm invoice", icon: <Check size={14} strokeWidth={3} />, run: confirmInvoice }
       : open && !sent
         ? { label: "Send invoice", icon: <Send size={14} />, run: sendInvoice }
@@ -125,7 +96,7 @@ export function InvoiceView({ detail }: { detail: InvoiceDetail }) {
         <>
           <Intro icon={<Receipt />} title={<ScrambleText>{detail.number}</ScrambleText>} subtitle={<StatusDot status={display} strong />} />
           {open && sent && balance > 0 && primary?.label !== "Send invoice" ? (
-            <button type="button" className={btnSecondary} onClick={sendInvoice}>
+            <button type="button" className={btnSecondary} onClick={sendInvoice} disabled={busy}>
               <Send size={14} /> Resend
             </button>
           ) : null}
@@ -138,12 +109,13 @@ export function InvoiceView({ detail }: { detail: InvoiceDetail }) {
               description="The invoice is voided and can't be paid or reopened."
               confirmLabel={<><Ban size={13} /> Cancel invoice</>}
               onConfirm={cancelInvoice}
+              disabled={busy}
             >
               <Ban size={14} /> Cancel
             </ConfirmButton>
           ) : null}
           {primary ? (
-            <button type="button" className={btnPrimary} onClick={primary.run}>
+            <button type="button" className={btnPrimary} onClick={primary.run} disabled={busy}>
               {primary.icon} {primary.label}
             </button>
           ) : null}
@@ -262,10 +234,9 @@ export function InvoiceView({ detail }: { detail: InvoiceDetail }) {
         </aside>
       </div>
 
-      <PaymentDialog
+      <RecordPaymentDialog
         invoice={paying ? { id: detail.id, number: detail.number, customer: detail.customer.name, balance } : null}
         onOpenChange={(o) => !o && setPaying(false)}
-        onRecord={recordPayment}
       />
     </PageGrid>
   );
