@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: subzero-postgres
+    environment:
+      POSTGRES_USER: subzero
+      POSTGRES_PASSWORD: subzero
+      POSTGRES_DB: subzero
+    ports:
+      - "5432:5432"
+    volumes:
+      - subzero_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subzero -d subzero"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: subzero-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  subzero_pgdata:
