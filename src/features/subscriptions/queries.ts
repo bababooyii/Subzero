@@ -13,6 +13,7 @@ import {
 } from "@/db/schema";
 import { toLimitOffset, type ListParams, type Paged } from "@/lib/pagination";
 import { price, type DiscountRule, type PriceResult } from "@/server/pricing";
+import { listApplicableDiscounts } from "@/features/discounts/queries";
 import { listActivity } from "@/server/activity-log";
 import { availableSubscriptionActions, type SubscriptionStatus } from "@/server/state-machine";
 import type { SubscriptionView } from "./schemas";
@@ -168,12 +169,12 @@ export async function getSubscription(db: Executor, id: string) {
   };
 }
 
-/** Prices the current lines. Discounts are passed in until lane C part 3 lands `listApplicableDiscounts`. */
+/** Prices the current lines. Discounts default to the ones applicable on `on`; pass an array to override. */
 export async function quoteSubscription(
   db: Executor,
   id: string,
   on: string,
-  discounts: DiscountRule[] = [],
+  discounts?: DiscountRule[],
 ): Promise<PriceResult> {
   const lines = await db
     .select()
@@ -197,7 +198,7 @@ export async function quoteSubscription(
       unitPrice: l.unitPrice,
       taxRatesBps: rates.filter((r) => r.productId === l.productId).map((r) => r.rateBps),
     })),
-    discounts,
+    discounts: discounts ?? (await listApplicableDiscounts(db, { productIds, on })),
     on,
   });
 }

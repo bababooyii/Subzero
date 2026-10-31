@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { subscriptionLines } from "@/db/schema";
+import { discounts, subscriptionLines } from "@/db/schema";
 import { makeCustomer, makePlan, makeProduct, makeSubscription, makeUser, makeVariant } from "@/server/state-machine/fixtures";
 import { testDb, truncateAll } from "@/test/db";
 import { getSubscription, listSubscriptions, quoteSubscription, subscriptionCounts } from "./queries";
@@ -105,6 +105,13 @@ describe("quoteSubscription", () => {
     ]);
     expect(withDiscount.discountTotal).toBe(2500);
     expect(withDiscount.total).toBe(26550);
+  });
+
+  it("defaults to the applicable discounts from the database", async () => {
+    const { active } = await seed();
+    await testDb.insert(discounts).values({ name: "10%", kind: "percent", value: 1000, scope: "subscription" });
+    const q = await quoteSubscription(testDb, active.id, TODAY);
+    expect(q.discountTotal).toBe(2500);
   });
 });
 
