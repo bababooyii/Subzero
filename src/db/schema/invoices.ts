@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   date,
   index,
@@ -48,6 +49,7 @@ export const invoices = pgTable(
     index("invoices_status_due_idx").on(t.status, t.dueDate),
     index("invoices_issued_on_idx").on(t.issuedOn),
     index("invoices_customer_idx").on(t.customerId),
+    index("invoices_number_trgm_idx").using("gin", sql`${t.number} gin_trgm_ops`),
   ],
 );
 
