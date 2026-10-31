@@ -7,11 +7,11 @@ import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews } from "@/components/ui/SavedViews";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { PortalInvoice } from "@/lib/mock/selectors-portal";
 import { btnPrimary } from "@/lib/ui";
 import { outstanding } from "./derive";
 import { InvoiceStatus } from "./InvoiceStatus";
 import { usePortal } from "./PortalProvider";
+import type { PortalInvoice } from "./types";
 import { INVOICE_VIEWS, type InvoiceView } from "./views";
 
 const LABEL: Record<InvoiceView, string> = { all: "All", unpaid: "Unpaid", overdue: "Overdue", paid: "Paid" };

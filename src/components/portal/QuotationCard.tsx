@@ -8,12 +8,11 @@ import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { toast } from "@/components/ui/toast";
 import { formatDate, formatMoney } from "@/lib/format";
-import { TODAY } from "@/lib/mock/clock";
-import type { PortalSub } from "@/lib/mock/selectors-portal";
 import { btnPrimary, btnSecondary, heroBody, heroFrame } from "@/lib/ui";
-import { INTERVAL_NOUN } from "./labels";
+import { intervalNoun } from "./labels";
+import type { PortalSub } from "./types";
 
-type Props = { sub: PortalSub; signer: string; onAccept: () => void };
+type Props = { sub: PortalSub; signer: string; today: string; onAccept: () => void };
 
 const SIGN_SECONDS = 2;
 
@@ -22,9 +21,10 @@ const SIGN_SECONDS = 2;
  * The signing box takes whatever height is left. Accepting draws the signature in, then confirms the subscription;
  * the card then stays in place in its signed state (same layout, so nothing moves).
  */
-export function QuotationCard({ sub, signer, onAccept }: Props) {
+export function QuotationCard({ sub, signer, today, onAccept }: Props) {
   const [signing, setSigning] = useState(false);
   const accepted = sub.status !== "quotation";
+  const validUntil = sub.quotationValidUntil ?? sub.expiryDate;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -46,7 +46,7 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
           <div className="min-w-0">
             <h3 className="truncate text-[15px] font-medium text-text">{sub.planName}</h3>
             <p className="mt-0.5 text-[12px] text-muted">
-              <span className="tabular-nums">{sub.number}</span> · Valid until {formatDate(sub.expiryDate)}
+              <span className="tabular-nums">{sub.number}</span> · Valid until {validUntil ? formatDate(validUntil) : "further notice"}
             </p>
           </div>
           {accepted ? <StatusDot status="active" label="Accepted" /> : <StatusDot status="quotation" />}
@@ -67,7 +67,7 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
           </ul>
         </ScrollPanel>
         <div className="mt-2 flex shrink-0 items-baseline justify-between">
-          <span className="text-[12px] text-muted">Total incl. tax, per {INTERVAL_NOUN[sub.interval]}</span>
+          <span className="text-[12px] text-muted">Total incl. tax, per {intervalNoun(sub.interval, sub.intervalCount)}</span>
           <span className="text-[22px] leading-7 font-medium tracking-tight text-text tabular-nums">{formatMoney(sub.amount)}</span>
         </div>
 
@@ -91,7 +91,7 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
           </div>
         </div>
         <p className="mt-1.5 shrink-0 truncate text-[12px] text-muted">
-          {accepted ? `Signed by ${signer} · ${formatDate(TODAY)}` : `Signing as ${signer}`}
+          {accepted ? `Signed by ${signer} · ${formatDate(today)}` : `Signing as ${signer}`}
         </p>
       </div>
       <div className="flex shrink-0 items-center justify-between gap-1.5 px-3 py-2.5">

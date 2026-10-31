@@ -10,12 +10,12 @@ import { Stepper } from "@/components/ui/Stepper";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { Timeline, type TimelineEvent } from "@/components/ui/Timeline";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { PortalLine } from "@/lib/mock/selectors-portal";
 import { sectionTitle, surface } from "@/lib/ui";
 import { InvoiceStatus } from "./InvoiceStatus";
-import { INTERVAL_NOUN } from "./labels";
+import { intervalNoun } from "./labels";
 import { usePortal } from "./PortalProvider";
 import { SubActions } from "./SubActions";
+import type { PortalLine } from "./types";
 
 const lineColumns: TableColumn<PortalLine>[] = [
   {
@@ -58,7 +58,7 @@ type Props = { id: string; events: TimelineEvent[] };
 
 /** A customer's own subscription: the same two-column record as the staff app. */
 export function PortalSubscriptionDetail({ id, events }: Props) {
-  const { subs, invoices, setSubStatus } = usePortal();
+  const { subs, invoices, pauseSub, resumeSub, cancelSub } = usePortal();
   const sub = subs.find((s) => s.id === id);
   const history = useMemo(
     () => invoices.filter((i) => i.subscriptionId === id).sort((a, b) => b.dueDate.localeCompare(a.dueDate)),
@@ -66,13 +66,14 @@ export function PortalSubscriptionDetail({ id, events }: Props) {
   );
   if (!sub) return null;
   const { status, totals } = sub;
+  const validUntil = status === "quotation" ? (sub.quotationValidUntil ?? sub.expiryDate) : sub.expiryDate;
 
   return (
     <PageGrid
       left={
         <>
           <Intro icon={<RefreshCw />} title={sub.number} subtitle={<StatusDot status={status} strong />} />
-          <SubActions sub={sub} onStatus={(s) => setSubStatus(id, s)} />
+          <SubActions sub={sub} onPause={() => pauseSub(id)} onResume={() => resumeSub(id)} onCancel={() => cancelSub(id)} />
         </>
       }
     >
@@ -91,7 +92,7 @@ export function PortalSubscriptionDetail({ id, events }: Props) {
             <TotalCell label="Subtotal" value={totals.subtotal} />
             <TotalCell label="Discount" value={-totals.discountTotal} />
             <TotalCell label="Tax" value={totals.taxTotal} />
-            <TotalCell label={`Total / ${INTERVAL_NOUN[sub.interval]}`} value={totals.total} strong />
+            <TotalCell label={`Total / ${intervalNoun(sub.interval, sub.intervalCount)}`} value={totals.total} strong />
           </div>
         </div>
 
@@ -100,10 +101,10 @@ export function PortalSubscriptionDetail({ id, events }: Props) {
             <h2 className={`${sectionTitle} mb-1`}>Details</h2>
             <dl className="divide-y divide-white/[0.05]">
               <Fact label="Plan">{sub.planName}</Fact>
-              <Fact label="Billed">Every {INTERVAL_NOUN[sub.interval]}</Fact>
+              <Fact label="Billed">Every {intervalNoun(sub.interval, sub.intervalCount)}</Fact>
               <Fact label="Started">{formatDate(sub.startDate)}</Fact>
               <Fact label="Next billing">{status === "active" && sub.nextBillingDate ? formatDate(sub.nextBillingDate) : "None scheduled"}</Fact>
-              <Fact label="Valid until">{formatDate(sub.expiryDate)}</Fact>
+              <Fact label="Valid until">{validUntil ? formatDate(validUntil) : "No expiry"}</Fact>
               <Fact label="Payment terms">{sub.paymentTerms}</Fact>
             </dl>
           </div>

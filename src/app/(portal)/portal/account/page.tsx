@@ -1,8 +1,18 @@
+import { Suspense } from "react";
 import { PortalAccount } from "@/components/portal/PortalAccount";
-import { portalCustomer } from "@/lib/mock/selectors-portal";
+import { getPortalData } from "@/components/portal/load";
 
 export const metadata = { title: "Account · Brightloop" };
 
 export default function Page() {
-  return <PortalAccount customer={portalCustomer()} />;
+  return (
+    <Suspense fallback={<div className="h-full" />}>
+      <Content />
+    </Suspense>
+  );
+}
+
+async function Content() {
+  const { customer } = await getPortalData();
+  return <PortalAccount customer={customer} />;
 }

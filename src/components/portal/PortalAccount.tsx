@@ -8,8 +8,8 @@ import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { toast } from "@/components/ui/toast";
 import { formatDateLong } from "@/lib/format";
-import type { Customer } from "@/lib/mock/types";
 import { btnPrimary, btnSecondary, hint, sectionTitle, surface } from "@/lib/ui";
+import type { PortalCustomer } from "./types";
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -20,8 +20,11 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-/** Profile and billing contact. The contact is a small form (mock: saving only shows a toast); company facts are read-only. */
-export function PortalAccount({ customer }: { customer: Customer }) {
+/**
+ * Profile and billing contact, read from the signed-in customer's record. The contact is a small form; company facts are read-only.
+ * TODO(backend): customers cannot edit their own record yet (updateCustomerAction is staff only), so saving only shows a toast.
+ */
+export function PortalAccount({ customer }: { customer: PortalCustomer }) {
   const [contact, setContact] = useState({ contactName: customer.contactName, email: customer.email, phone: customer.phone });
   const [saved, setSaved] = useState(contact);
   const dirty = contact.contactName !== saved.contactName || contact.email !== saved.email || contact.phone !== saved.phone;
@@ -77,9 +80,9 @@ export function PortalAccount({ customer }: { customer: Customer }) {
             <h2 className={`${sectionTitle} mb-1`}>Company</h2>
             <dl className="divide-y divide-white/[0.05]">
               <Fact label="Company">{customer.name}</Fact>
-              <Fact label="City">{customer.city}</Fact>
+              <Fact label="Address">{customer.address || "—"}</Fact>
               <Fact label="GSTIN">
-                <span className="tabular-nums">{customer.gstin}</span>
+                <span className="tabular-nums">{customer.gstin || "—"}</span>
               </Fact>
               <Fact label="Customer since">{formatDateLong(customer.createdAt)}</Fact>
             </dl>
