@@ -60,11 +60,11 @@ function activeAt(asOf: string, planId?: string): SQL {
     where s.start_date <= ${asOf}::date
       and s.status in ('active', 'paused', 'closed')
       ${planFilter("s", planId)}
-      and (s.status = 'active' or not exists (
+      and (s.status = 'active' or exists (
         select 1 from activity_log a
         where a.entity_type = 'subscription' and a.entity_id = s.id::text
           and a.from_status = 'active' and a.to_status in ('paused', 'closed')
-          and a.at::date <= ${asOf}::date))`;
+          and a.at::date > ${asOf}::date))`;
 }
 
 /** Active count and MRR (daily x30, weekly x52/12, yearly /12, divided by interval_count). */

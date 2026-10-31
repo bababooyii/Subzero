@@ -96,15 +96,15 @@ async function seedUsers(): Promise<SeedUsers> {
 }
 
 async function seedCatalog(data: Dataset) {
-  await insertAll(taxes, data.taxes, "taxes");
-  await insertAll(paymentTerms, data.paymentTerms, "payment_terms");
+  await insertAll(taxes, data.taxes.map((t) => ({ ...t })), "taxes");
+  await insertAll(paymentTerms, data.paymentTerms.map((t) => ({ ...t })), "payment_terms");
   await insertAll(
     products,
     data.products.map((p) => ({ id: p.id, name: p.name, type: "service", salesPrice: p.salesPrice, costPrice: p.costPrice })),
     "products",
   );
   await insertAll(productTaxes, data.products.map((p) => ({ productId: p.id, taxId: p.taxId })), "product_taxes");
-  await insertAll(productVariants, data.variants, "product_variants");
+  await insertAll(productVariants, data.variants.map((v) => ({ ...v })), "product_variants");
   await insertAll(
     plans,
     data.plans.map((p) => ({
