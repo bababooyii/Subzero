@@ -6,9 +6,12 @@ import { fail, type ActionResult } from "@/lib/action-result";
 import { ForbiddenError, requireActor, UnauthorizedError } from "@/lib/auth/session";
 import { transitionSubscription } from "@/server/state-machine";
 import {
+  acceptMyQuotation,
   cancelMySubscription,
+  payMyInvoice,
   pauseMySubscription,
   resumeMySubscription,
+  updateMyContact,
   type PortalDeps,
 } from "./service";
 
@@ -38,4 +41,14 @@ export async function resumeMySubscriptionAction(id: string) {
 }
 export async function cancelMySubscriptionAction(id: string) {
   return guarded((actor) => db.transaction((tx) => cancelMySubscription(tx, actor, { id }, deps)));
+}
+
+export async function payMyInvoiceAction(input: { invoiceId: string; method: "upi" | "card" | "bank_transfer" | "cash" }) {
+  return guarded((actor) => db.transaction((tx) => payMyInvoice(tx, actor, input)));
+}
+export async function acceptMyQuotationAction(input: { subscriptionId: string }) {
+  return guarded((actor) => db.transaction((tx) => acceptMyQuotation(tx, actor, input)));
+}
+export async function updateMyContactAction(input: { name: string; email: string; phone?: string; address?: string }) {
+  return guarded((actor) => db.transaction((tx) => updateMyContact(tx, actor, input)));
 }
