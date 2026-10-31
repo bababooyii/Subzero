@@ -65,7 +65,7 @@ export async function listProducts(
       salesPrice: products.salesPrice,
       costPrice: products.costPrice,
       active: products.active,
-      variantCount: sql<number>`(select count(*)::int from ${productVariants} where ${productVariants.productId} = ${products.id})`,
+      variantCount: sql<number>`(select count(*)::int from ${productVariants} where ${productVariants.productId} = "products"."id")`,
     })
     .from(products)
     .where(where)
@@ -288,7 +288,7 @@ export async function listTemplates(db: Db, params: ListParams = {}): Promise<Pa
       planName: plans.name,
       paymentTermId: quotationTemplates.paymentTermId,
       paymentTermName: paymentTerms.name,
-      lineCount: sql<number>`(select count(*)::int from ${quotationTemplateLines} where ${quotationTemplateLines.templateId} = ${quotationTemplates.id})`,
+      lineCount: sql<number>`(select count(*)::int from ${quotationTemplateLines} where ${quotationTemplateLines.templateId} = "quotation_templates"."id")`,
     })
     .from(quotationTemplates)
     .leftJoin(plans, eq(quotationTemplates.planId, plans.id))
