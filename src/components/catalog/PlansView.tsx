@@ -1,18 +1,18 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Layers, Plus } from "lucide-react";
-import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/Dialog";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Field, Input } from "@/components/ui/Field";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { toast } from "@/components/ui/toast";
-import { TODAY_ISO } from "@/lib/mock/clock";
-import { INTERVALS, PLAN_FLAGS, type PlanFlagKey, type PlanStats } from "@/lib/mock/selectors-catalog";
-import type { Interval, Plan } from "@/lib/mock/types";
+import { archivePlanAction, createPlanAction, updatePlanAction } from "@/features/catalog/actions";
 import { btnPrimary, btnSecondary, btnSquare, surface } from "@/lib/ui";
-import { fromPaise, isAmount, isWhole, localId, toPaise } from "./form-utils";
+import { INTERVALS, type Interval, PLAN_FLAGS, type PlanData, type PlanFlagKey, type PlanStats } from "./catalog-utils";
+import { type FieldErrors, errorHint } from "./field-errors";
+import { fromPaise, isAmount, isWhole, toPaise } from "./form-utils";
 import { PlanCard } from "./PlanCard";
 
 /** Cards sit three across; a row needs at least this much height for the full card. */
@@ -38,19 +38,21 @@ function useRowsThatFit() {
 
 function PlanForm({
   initial,
-  onSave,
+  today,
   onOpenChange,
 }: {
-  initial: Plan | null;
-  onSave: (p: Plan) => void;
+  initial: PlanData | null;
+  today: string;
   onOpenChange: (open: boolean) => void;
 }) {
+  const [pending, startTransition] = useTransition();
+  const [errors, setErrors] = useState<FieldErrors>();
   const [name, setName] = useState(initial?.name ?? "");
   const [price, setPrice] = useState(initial ? fromPaise(initial.price) : "");
   const [every, setEvery] = useState<Interval>(initial?.interval ?? "monthly");
   const [minQty, setMinQty] = useState(String(initial?.minQty ?? 1));
-  const [start, setStart] = useState(initial?.startDate ?? TODAY_ISO);
-  const [end, setEnd] = useState(initial?.endDate ?? "");
+  const [start, setStart] = useState(initial?.availableFrom ?? today);
+  const [end, setEnd] = useState(initial?.availableTo ?? "");
   const [flags, setFlags] = useState<Record<PlanFlagKey, boolean>>({
     autoClose: initial?.autoClose ?? false,
     closable: initial?.closable ?? true,
@@ -63,17 +65,27 @@ function PlanForm({
     name.trim() !== "" && isAmount(price) && Number(price) > 0 && isWhole(minQty, 1) && start !== "" && !endBeforeStart;
 
   const save = () => {
-    onSave({
-      id: initial?.id ?? localId("pln"),
+    const input = {
       name: name.trim(),
       price: toPaise(price),
       interval: every,
+      // The dialog has no "every N" control; keep what the plan already has.
+      intervalCount: initial?.intervalCount ?? 1,
       minQty: Number(minQty),
-      startDate: start,
-      endDate: end || null,
+      availableFrom: start,
+      availableTo: end || null,
       ...flags,
+    };
+    startTransition(async () => {
+      const result = initial ? await updatePlanAction(initial.id, input) : await createPlanAction(input);
+      if (!result.ok) {
+        setErrors(result.fieldErrors);
+        toast(result.error);
+        return;
+      }
+      toast(initial ? `Saved ${input.name}` : `Added ${input.name}`);
+      onOpenChange(false);
     });
-    onOpenChange(false);
   };
 
   return (
@@ -84,18 +96,18 @@ function PlanForm({
       footer={
         <>
           <DialogClose className={btnSecondary}>Cancel</DialogClose>
-          <button type="button" className={btnPrimary} onClick={save} disabled={!valid}>
+          <button type="button" className={btnPrimary} onClick={save} disabled={!valid || pending}>
             {initial ? "Save plan" : "Add plan"}
           </button>
         </>
       }
     >
       <div className="space-y-4">
-        <Field label="Name" htmlFor="pln-name">
+        <Field label="Name" htmlFor="pln-name" hint={errorHint(errors, "name")}>
           <Input id="pln-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Growth Monthly" autoFocus />
         </Field>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Price (₹)" htmlFor="pln-price">
+          <Field label="Price (₹)" htmlFor="pln-price" hint={errorHint(errors, "price")}>
             <Input
               id="pln-price"
               align="right"
@@ -105,7 +117,7 @@ function PlanForm({
               placeholder="2499"
             />
           </Field>
-          <Field label="Interval" htmlFor="pln-interval">
+          <Field label="Interval" htmlFor="pln-interval" hint={errorHint(errors, "interval", "intervalCount")}>
             <Dropdown
               id="pln-interval"
               value={every}
@@ -116,19 +128,23 @@ function PlanForm({
               }))}
             />
           </Field>
-          <Field label="Min quantity" htmlFor="pln-min">
+          <Field label="Min quantity" htmlFor="pln-min" hint={errorHint(errors, "minQty")}>
             <Input id="pln-min" align="right" inputMode="numeric" value={minQty} onChange={(e) => setMinQty(e.target.value)} />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Available from" htmlFor="pln-start">
+          <Field label="Available from" htmlFor="pln-start" hint={errorHint(errors, "availableFrom")}>
             <Input id="pln-start" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
           </Field>
           <Field
             label="Available until"
             htmlFor="pln-end"
             hint={
-              endBeforeStart ? <span className="text-danger">Must be after the start date.</span> : "Leave empty for no end date."
+              endBeforeStart ? (
+                <span className="text-danger">Must be after the start date.</span>
+              ) : (
+                (errorHint(errors, "availableTo") ?? "Leave empty for no end date.")
+              )
             }
           >
             <Input id="pln-end" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
@@ -158,10 +174,18 @@ function PlanForm({
   );
 }
 
-/** Plans as a pricing-card grid that fills the page height, plus the plan dialog. Changes are local state only. */
-export function PlansView({ initial, stats }: { initial: Plan[]; stats: Record<string, PlanStats> }) {
-  const [plans, setPlans] = useState(initial);
-  const [editing, setEditing] = useState<Plan | "new" | null>(null);
+/** Plans as a pricing-card grid that fills the page height, plus the plan dialog. Saves go through the catalog server actions. */
+export function PlansView({
+  plans,
+  stats,
+  today,
+}: {
+  plans: PlanData[];
+  stats: Record<string, PlanStats>;
+  today: string;
+}) {
+  const [editing, setEditing] = useState<PlanData | "new" | null>(null);
+  const [, startTransition] = useTransition();
   const [gridRef, rowsThatFit] = useRowsThatFit();
   const [page, setPage] = useState(0);
   // Never more rows than the plans need, so 4 plans stay two tall rows rather than a sparse grid.
@@ -171,16 +195,11 @@ export function PlansView({ initial, stats }: { initial: Plan[]; stats: Record<s
   const safePage = Math.min(page, pages - 1);
   const visible = plans.slice(safePage * perPage, (safePage + 1) * perPage);
 
-  const save = (p: Plan) => {
-    const isNew = !plans.some((x) => x.id === p.id);
-    setPlans((ps) => (isNew ? [...ps, p] : ps.map((x) => (x.id === p.id ? p : x))));
-    toast(isNew ? `Added ${p.name}` : `Saved ${p.name}`);
-  };
-
-  const remove = (p: Plan) => {
-    setPlans((ps) => ps.filter((x) => x.id !== p.id));
-    toast(`Deleted ${p.name}`);
-  };
+  const remove = (p: PlanData) =>
+    startTransition(async () => {
+      const result = await archivePlanAction(p.id);
+      toast(result.ok ? `Removed ${p.name}` : result.error);
+    });
 
   return (
     <PageGrid
@@ -237,7 +256,7 @@ export function PlansView({ initial, stats }: { initial: Plan[]; stats: Record<s
             <PlanForm
               key={editing === "new" ? "new" : editing.id}
               initial={editing === "new" ? null : editing}
-              onSave={save}
+              today={today}
               onOpenChange={(o) => !o && setEditing(null)}
             />
           ) : null}
