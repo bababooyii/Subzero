@@ -15,8 +15,8 @@ UI primitives: Radix (Dialog, DropdownMenu, Popover, Tooltip) and TanStack Table
 - **Pill nav (admin/staff):** Dashboard · Subscriptions · Invoices · Payments · Customers · Catalog.
   - Count chips carry meaning only: Subscriptions = due to bill today, Invoices = overdue. No chip when the count is 0.
   - Staff don't see Catalog.
-- **Account button menu:** Settings (admin: Users & staff, Taxes, Payment terms, Company) · Billing run · Sign out.
-- **Pill nav (portal):** Subscriptions · Invoices · Account.
+- **Account button menu:** Settings (admin: Users & staff, Payment terms, Company) · Billing run · Sign out.
+- **Portal shell:** the same full-height sidebar and slim top bar as the admin app (Overview · Subscriptions · Invoices, Account at the bottom), built from the shared `Sidebar`/`TopBar`/`ShellFrame`.
 - Filled nav icons: the four in design-system §9 are not enough. Draw filled 24×24 even-odd icons for dashboard (grid of tiles), subscriptions (circular arrows), invoices (receipt with cut-out lines), payments (card with cut-out stripe), customers (two heads) and catalog (box). Never use filled outline icons.
 
 ## 3. Status: the one place colour is allowed
@@ -56,7 +56,7 @@ Most screens are tables, and the design system only has lists. Tables use:
 | **List** (Subscriptions, Invoices, Payments, Customers) | Persistent intro (icon tile, title with live count, muted subtitle such as "₹4.2L outstanding"), then **saved views** as a settings-style raised menu (All, Active, Paused, Closing this month…), then a "New" primary button | Table, spanning both columns. The grid widens to `max-width 1440px` on list screens |
 | **Record** (subscription, invoice, customer) | Number, status, key facts (customer, plan, dates, terms), then the record's actions (one white primary = the next state move) | **Status stepper**, line items table, totals block, **activity timeline** |
 | **Form / editor** | Short explanation and hints | Form spanning both columns, max 760px. The subscription editor shows a live totals block (subtotal, discount, tax, total) under the lines |
-| **Catalog** (Products, Plans, Templates, Taxes, Discounts) | Persistent catalog menu, like the Settings menu (same component; doesn't remount) | Table or form |
+| **Catalog** (Products, Plans, Templates, Discounts) | Header only (no catalog menu; the sidebar lists the pages). Taxes have no page: they are created inline wherever a tax is picked (`TaxPicker`) | Table, card grid or form |
 | **Billing run** | See §6 | Hero deck |
 | **Dashboard** | Intro ("November so far") plus the period and plan filters | KPI tiles, charts, overdue list |
 
@@ -97,6 +97,19 @@ The quotation queue ("Quotations waiting for confirmation") reuses the same deck
 - **Sign in, sign up and reset:** centred single column. The wordmark sits above a hero-card frame containing the form, with one white button. Password rules appear as a live checklist under the field (soft checkboxes turn on as each rule is met).
 - **Customer portal:** same shell, with the portal pill nav. The Subscriptions page shows each subscription as a hero card: plan, next billing date, amount, and Pause/Cancel where the plan allows it. Invoices is a table with **Pay** (white) opening a mock checkout in the payment dialog.
 - **Invoice print / PDF:** this is the only light surface. It uses the light tokens (`--bg #FFFFFF`, `--text #1C1C1A`, `--line #E6E5E1`), Inter, and an A4 layout with `@media print`. The on-screen invoice page shows a preview of it inside a hero frame.
+
+## Fit to screen
+
+The app never scrolls the page. Below 640px wide or 600px tall it falls back to normal scroll.
+
+1. **No page scroll.** `AppShell` is `h-dvh`; `main` fills the rest and `PageGrid` fits inside it at any window size from about 1280×720 up. Design for the viewport you get, not one standard size.
+2. **Show only what fits.** `DataTable` measures its height and paginates to that many rows (`autoFit`, on by default). Longer secondary content (timelines, invoice lines, long forms) goes in a fixed-height `ScrollPanel`, never in page scroll.
+3. **No scrollbar layout shift.** Internal panels use `scroll-quiet` (no visible scrollbar), so nothing moves sideways when content overflows.
+4. **One page indicator position.** `PageGrid` has one width and a fixed `h-14` header, so the icon tile and title sit at the same x/y on every page and pop in the same spot on every page change.
+5. **View switches are smooth.** `PageGrid` re-animates its content (`content-in`) when the path or search string changes. Saved views and `PillSwitch` options change content without re-popping the header.
+6. **Tables breathe.** 40px header, 52px rows, 20px cell padding (24px at the edges), 4%-white row dividers, 12px muted secondary text. The bulk-selection bar replaces the footer's left side, so selecting never changes the table height.
+
+Page authors: return one `h-full` root from `PageGrid` children. Make a column fill with `min-h-0 flex-1` (every flex or grid ancestor of a scroller needs `min-h-0`), and pin a footer as a `shrink-0` sibling after the filling area.
 
 ## 10. Copy for this product
 
