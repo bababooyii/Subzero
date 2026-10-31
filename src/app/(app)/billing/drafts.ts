@@ -3,7 +3,8 @@ import { db } from "@/db/client";
 import { customers, invoices, paymentTerms, payments, plans, subscriptions } from "@/db/schema";
 import { previewBillingAction } from "@/features/billing/actions";
 import { displayStatusOf } from "@/features/invoices/queries";
-import { addDays, todayIST } from "@/lib/dates";
+import { addDays } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import type { DraftContext, DraftInvoice } from "@/components/billing/draft";
 
 const firstLine = (s: string | null) => s?.split(/\r?\n/)[0]?.trim() ?? "";
@@ -18,7 +19,7 @@ export async function loadDrafts(): Promise<{ drafts: DraftInvoice[]; error: str
   const rows = preview.data.rows;
   if (rows.length === 0) return { drafts: [], error: null };
 
-  const today = todayIST();
+  const today = await requestToday();
   const subIds = [...new Set(rows.map((r) => r.subscriptionId))];
 
   const subs = await db
@@ -141,7 +142,7 @@ async function recentInvoices(customerIds: string[]) {
     .where(inArray(invoices.customerId, customerIds))
     .as("ranked");
   const rows = await db.select().from(ranked).where(lte(ranked.rn, 3)).orderBy(desc(ranked.issuedOn), desc(ranked.number));
-  const today = todayIST();
+  const today = await requestToday();
   for (const i of rows) {
     const list = out.get(i.customerId) ?? [];
     list.push({

@@ -5,7 +5,7 @@ import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews } from "@/components/ui/SavedViews";
 import { db } from "@/db/client";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { formatMoneyCompact, formatNumber } from "@/lib/format";
 import { readPaging } from "@/lib/table-params";
 import { CUSTOMER_VIEWS, listCustomerRows, overdueCustomerCount, parseCustomerView } from "./list-query";
@@ -28,7 +28,7 @@ const EMPTY: Record<string, { title: string; subtitle: string }> = {
 async function Customers({ searchParams }: PageProps<"/customers">) {
   const sp = await searchParams;
   const view = parseCustomerView(typeof sp.view === "string" ? sp.view : undefined);
-  const today = todayIST();
+  const today = await requestToday();
   const [list, overdueCount] = await Promise.all([
     listCustomerRows(db, { ...readPaging(sp), view, today }),
     overdueCustomerCount(db, today),

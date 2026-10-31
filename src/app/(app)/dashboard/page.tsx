@@ -13,7 +13,7 @@ import { Timeline } from "@/components/ui/Timeline";
 import { db } from "@/db/client";
 import { listPlans } from "@/features/catalog/queries";
 import { dashboardKpis, navCounts, overdueAgeing, overdueInvoices, revenueByMonth } from "@/features/dashboard/queries";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { formatMoneyCompact } from "@/lib/format";
 import { sectionTitle, surface } from "@/lib/ui";
 import { loadRecentActivity } from "./recent-activity";
@@ -40,7 +40,7 @@ export default function DashboardPage(props: PageProps<"/dashboard">) {
 
 async function Dashboard({ searchParams }: PageProps<"/dashboard">) {
   const sp = await searchParams;
-  const today = todayIST();
+  const today = await requestToday();
   const planParam = typeof sp.plan === "string" ? sp.plan : "";
   const plans = (await listPlans(db, { pageSize: 200 })).rows;
   const plan = plans.some((p) => p.id === planParam) ? planParam : "";
@@ -116,7 +116,7 @@ async function Dashboard({ searchParams }: PageProps<"/dashboard">) {
           <section className={`${surface} flex min-h-0 animate-rise flex-col p-5 pb-0`} style={{ animationDelay: "500ms" }}>
             <h2 className={`${sectionTitle} mb-3 shrink-0`}>Recent activity</h2>
             <ScrollPanel className="-mx-1 flex-1 px-1 pb-5">
-              <Timeline events={events.map((e) => ({ id: e.id, at: e.at, text: e.sentence }))} empty="Activity coming soon." />
+              <Timeline events={events.map((e) => ({ id: e.id, at: e.at, text: e.sentence, href: e.href }))} empty="No activity yet." />
             </ScrollPanel>
           </section>
         </div>

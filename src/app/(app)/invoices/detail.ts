@@ -7,7 +7,7 @@ import type { PaymentMethod } from "@/components/billing/draft";
 import { getInvoice } from "@/features/invoices/queries";
 import { invoiceDeps } from "@/features/invoices/deps";
 import { formatMoney } from "@/lib/format";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import type { ActivityItem } from "@/server/activity-log";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,7 +48,7 @@ function eventText(a: ActivityItem, number: string): string {
 /** The invoice record: `getInvoice` plus the plan and terms, shaped for the UI. Null for an unknown id. */
 export async function loadInvoiceDetail(id: string): Promise<InvoiceDetail | null> {
   if (!isUuid(id)) return null;
-  const inv = await getInvoice(db, id, { today: todayIST(), deps: invoiceDeps });
+  const inv = await getInvoice(db, id, { today: (await requestToday()), deps: invoiceDeps });
   if (!inv) return null;
   const subscription = await subscriptionInfo(inv.subscriptionId);
   const snap = (inv.snapshot ?? {}) as Record<string, string | null | undefined>;

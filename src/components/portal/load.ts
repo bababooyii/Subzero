@@ -16,7 +16,8 @@ import { listApplicableDiscounts } from "@/features/discounts/queries";
 import { myInvoices, mySubscriptions } from "@/features/portal/queries";
 import { resolveCustomerId } from "@/features/portal/scope";
 import { ForbiddenError, requireActor, UnauthorizedError, type Actor } from "@/lib/auth/session";
-import { todayIST, type Interval } from "@/lib/dates";
+import { type Interval } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { listActivity } from "@/server/activity-log";
 import { price } from "@/server/pricing";
 import type {
@@ -206,7 +207,7 @@ export const loadPortalData = cache(async (actorId: string, today: string): Prom
 /** The signed-in customer's data, or a redirect when there is no session. */
 export async function getPortalData(): Promise<PortalData> {
   const actor = await portalActor();
-  const data = await loadPortalData(actor.id, todayIST());
+  const data = await loadPortalData(actor.id, (await requestToday()));
   // A customer login with no linked customer row has nothing to show.
   if (!data) redirect("/login");
   return data;

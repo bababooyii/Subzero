@@ -1,11 +1,16 @@
-/** One line of the dashboard's Recent activity card, e.g. "INV-0142 confirmed by Asha". */
-export type RecentActivityItem = { id: string; at: string; sentence: string };
+import { db } from "@/db/client";
+import { listRecentActivity } from "@/server/activity-log";
 
-/**
- * TODO(backend): swap the body for `listRecentActivity(db, { limit })` from `@/server/activity-log` once it lands
- * (it returns ready-made `sentence` strings). Until then the card shows its empty state.
- */
+/** One line of the dashboard's Recent activity card, e.g. "INV-0142 confirmed by Asha". `href` is the record it is about, when it has a page. */
+export type RecentActivityItem = { id: string; at: string; sentence: string; href?: string };
+
+const hrefOf = (entityType: string, entityId: string) =>
+  entityType === "subscription" ? `/subscriptions/${entityId}` : entityType === "invoice" ? `/invoices/${entityId}` : undefined;
+
 export async function loadRecentActivity(limit: number): Promise<RecentActivityItem[]> {
-  void limit;
-  return [];
+  const rows = await listRecentActivity(db, { limit });
+  return rows.map((r) => {
+    const at = r.at.toISOString();
+    return { id: `${r.entityType}:${r.entityId}:${r.action}:${at}`, at, sentence: r.sentence, href: hrefOf(r.entityType, r.entityId) };
+  });
 }

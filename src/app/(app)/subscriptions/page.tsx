@@ -8,7 +8,7 @@ import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews } from "@/components/ui/SavedViews";
 import { db } from "@/db/client";
 import { listSubscriptions, subscriptionCounts } from "@/features/subscriptions/queries";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { formatNumber } from "@/lib/format";
 import { readPaging } from "@/lib/table-params";
 import { btnPrimary } from "@/lib/ui";
@@ -33,7 +33,7 @@ const EMPTY: Record<string, { title: string; subtitle: string }> = {
 async function Subscriptions({ searchParams }: PageProps<"/subscriptions">) {
   const sp = await searchParams;
   const view = parseSubscriptionView(typeof sp.view === "string" ? sp.view : undefined);
-  const today = todayIST();
+  const today = await requestToday();
   const [list, counts] = await Promise.all([
     listSubscriptions(db, { ...readPaging(sp), view, today }),
     subscriptionCounts(db, today),

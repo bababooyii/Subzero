@@ -3,7 +3,7 @@ import { DiscountsView } from "@/components/catalog/DiscountsView";
 import { db } from "@/db/client";
 import { productOptions } from "@/features/catalog/queries";
 import { getDiscount, listDiscounts } from "@/features/discounts/queries";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { readPaging } from "@/lib/table-params";
 
 export const metadata = { title: "Discounts · Brightloop" };
@@ -18,7 +18,7 @@ export default function Page(props: PageProps<"/catalog/discounts">) {
 
 async function Discounts({ searchParams }: PageProps<"/catalog/discounts">) {
   const paging = readPaging(await searchParams);
-  const today = todayIST();
+  const today = await requestToday();
   const [list, active, products] = await Promise.all([
     listDiscounts(db, { ...paging, today }),
     listDiscounts(db, { status: "active", pageSize: 1, today }),

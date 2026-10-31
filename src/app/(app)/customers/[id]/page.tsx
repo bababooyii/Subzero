@@ -8,7 +8,7 @@ import { getCustomer } from "@/features/customers/queries";
 import { listInvoices } from "@/features/invoices/queries";
 import { listPayments } from "@/features/payments/queries";
 import { listSubscriptions } from "@/features/subscriptions/queries";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { listActivity } from "@/server/activity-log";
 
 export default function Page(props: PageProps<"/customers/[id]">) {
@@ -25,7 +25,7 @@ async function Content({ params }: PageProps<"/customers/[id]">) {
   const customer = await getCustomer(db, id);
   if (!customer) notFound();
 
-  const today = todayIST();
+  const today = await requestToday();
   const [subs, invoices, overdueInvoices, payments] = await Promise.all([
     listSubscriptions(db, { customerId: id, today, pageSize: 100 }),
     listInvoices(db, { customerId: id, today, pageSize: 100 }),

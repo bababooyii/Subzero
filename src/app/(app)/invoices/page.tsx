@@ -6,7 +6,7 @@ import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews, type SavedView } from "@/components/ui/SavedViews";
 import { db } from "@/db/client";
 import { listInvoices } from "@/features/invoices/queries";
-import { todayIST } from "@/lib/dates";
+import { requestToday } from "@/lib/request-today";
 import { formatMoneyCompact, formatNumber } from "@/lib/format";
 import { readPaging } from "@/lib/table-params";
 import { INVOICE_VIEWS, type InvoicePageView, outstandingFor, viewFilter } from "./queries";
@@ -43,7 +43,7 @@ async function Invoices({ searchParams }: PageProps<"/invoices">) {
   const param = typeof sp.view === "string" ? sp.view : "all";
   const view = (INVOICE_VIEWS as readonly string[]).includes(param) ? (param as InvoicePageView) : "all";
   const paging = readPaging(sp);
-  const today = todayIST();
+  const today = await requestToday();
 
   const [list, drafts, overdue, outstanding] = await Promise.all([
     listInvoices(db, { ...viewFilter(view), ...paging, today }),
