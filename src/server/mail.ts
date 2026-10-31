@@ -1,6 +1,6 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 
-let transport: nodemailer.Transporter | undefined;
+let transport: Transporter | undefined;
 
 function getTransport() {
   transport ??= nodemailer.createTransport({
