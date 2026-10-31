@@ -1,19 +1,17 @@
-import { asc, ne } from "drizzle-orm";
 import { db } from "@/db/client";
-import { user } from "@/db/schema";
+import { listUsers } from "@/features/users/queries";
 
 /** A back-office team member (admin or staff). */
 export type TeamUser = { id: string; name: string; email: string; role: "admin" | "staff" };
 
 /**
- * Team list for Settings. Admin-only: the page checks the role before calling.
- * TODO(backend): swap to listUsers(db) / listUsersAction() from `@/features/users/queries`.
+ * Team list for Settings (admins and staff, by name). Admin-only: the page checks the role before calling,
+ * which is why this reads `listUsers(db)` directly instead of going through `listUsersAction`.
  */
 export async function listTeam(): Promise<TeamUser[]> {
-  const rows = await db
-    .select({ id: user.id, name: user.name, email: user.email, role: user.role })
-    .from(user)
-    .where(ne(user.role, "customer"))
-    .orderBy(asc(user.name));
-  return rows as TeamUser[];
+  const params = { pageSize: 200, sort: "name", dir: "asc" } as const;
+  const [admins, staff] = await Promise.all([listUsers(db, { ...params, role: "admin" }), listUsers(db, { ...params, role: "staff" })]);
+  return [...admins.rows, ...staff.rows]
+    .map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role as TeamUser["role"] }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback } from "react";
 import { authClient } from "@/components/auth/auth-client";
 import { MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/Menu";
 import { CommandPalette } from "./CommandPalette";
@@ -9,7 +9,7 @@ import { SignOutIcon, SlidersIcon } from "./icons";
 import { CATALOG_NAV, MAIN_NAV, SETTINGS_NAV } from "./nav";
 import { type AppRole, RoleProvider, useRole } from "./role";
 import { ShellFrame } from "./ShellFrame";
-import { paletteGroups } from "./search-source";
+import { searchGroups } from "./search-source";
 import { type NavCounts, Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
@@ -32,6 +32,7 @@ function AdminSidebar({ counts }: { counts: NavCounts }) {
 function AdminTopBar({ user }: { user: ShellUser }) {
   const { role } = useRole();
   const router = useRouter();
+  const search = useCallback((q: string) => searchGroups(q, { products: role === "admin" }), [role]);
   const pages = [...MAIN_NAV, ...(role === "admin" ? [...CATALOG_NAV, SETTINGS_NAV] : [])];
 
   async function signOut() {
@@ -41,7 +42,7 @@ function AdminTopBar({ user }: { user: ShellUser }) {
   }
 
   return (
-    <TopBar search={<CommandPalette pages={pages} groups={paletteGroups()} placeholder="Jump to a page" />} accountIcon={<SlidersIcon />}>
+    <TopBar search={<CommandPalette pages={pages} search={search} placeholder="Jump to a page" />} accountIcon={<SlidersIcon />}>
       <MenuLabel>{user.name}</MenuLabel>
       {role === "admin" ? (
         <MenuItem href="/settings" icon={<SlidersIcon />}>Settings</MenuItem>
