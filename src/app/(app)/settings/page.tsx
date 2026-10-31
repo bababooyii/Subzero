@@ -1,8 +1,12 @@
+import { redirect } from "next/navigation";
+import { requireStaffUser } from "@/components/shell/guard";
 import { UsersView } from "@/components/settings/UsersView";
-import { listUsers } from "@/lib/mock/selectors";
+import { listTeam } from "@/components/settings/users-source";
 
 export const metadata = { title: "Settings · Brightloop" };
 
-export default function Page() {
-  return <UsersView initial={listUsers().filter((u) => u.role !== "customer")} />;
+export default async function Page() {
+  const user = await requireStaffUser();
+  if (user.role !== "admin") redirect("/dashboard");
+  return <UsersView initial={await listTeam()} />;
 }

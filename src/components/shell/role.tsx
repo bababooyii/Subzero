@@ -1,16 +1,15 @@
 "use client";
 
-import { type ReactNode, createContext, useContext, useState } from "react";
+import { type ReactNode, createContext, useContext } from "react";
 
 export type AppRole = "admin" | "staff";
 
-type Ctx = { role: AppRole; setRole: (r: AppRole) => void };
-const RoleContext = createContext<Ctx>({ role: "admin", setRole: () => {} });
+type Ctx = { role: AppRole };
+const RoleContext = createContext<Ctx>({ role: "staff" });
 
-/** Demo role switcher state. Staff can't see Catalog or Settings. */
-export function RoleProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<AppRole>("admin");
-  return <RoleContext.Provider value={{ role, setRole }}>{children}</RoleContext.Provider>;
+/** The signed-in staff member's role, fed from the server session by the (app) layout. Staff can't see Catalog or Settings. */
+export function RoleProvider({ role, children }: { role: AppRole; children: ReactNode }) {
+  return <RoleContext.Provider value={{ role }}>{children}</RoleContext.Provider>;
 }
 
 export const useRole = () => useContext(RoleContext);

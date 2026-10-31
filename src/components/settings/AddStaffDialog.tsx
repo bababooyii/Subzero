@@ -1,46 +1,61 @@
 "use client";
 
 import { useState } from "react";
-import { localId } from "@/components/catalog/form-utils";
+import { PasswordRules, passwordOk } from "@/components/auth/PasswordRules";
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/Dialog";
-import { Dropdown } from "@/components/ui/Dropdown";
 import { Field, Input } from "@/components/ui/Field";
-import type { User } from "@/lib/mock/types";
+import { toast } from "@/components/ui/toast";
+import { createStaffUser } from "@/features/users/actions";
 import { btnPrimary, btnSecondary } from "@/lib/ui";
+import type { TeamUser } from "./users-source";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  existing: User[];
-  onAdd: (user: User) => void;
+  existing: TeamUser[];
+  /** Called after the staff user was created (the parent refreshes the list). */
+  onAdded: (name: string) => void;
 };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function Form({ existing, onAdd, onOpenChange }: Omit<Props, "open">) {
+function Form({ existing, onAdded, onOpenChange }: Omit<Props, "open">) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"staff" | "admin">("staff");
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
   const trimmed = email.trim().toLowerCase();
   const taken = trimmed !== "" && existing.some((u) => u.email.toLowerCase() === trimmed);
   const emailBad = trimmed !== "" && !EMAIL.test(trimmed);
-  const valid = name.trim() !== "" && trimmed !== "" && !emailBad && !taken;
+  const valid = name.trim() !== "" && trimmed !== "" && !emailBad && !taken && passwordOk(password);
 
-  const submit = () => {
-    if (!valid) return;
-    onAdd({ id: localId("u"), name: name.trim(), email: trimmed, role });
+  const submit = async () => {
+    if (!valid || pending) return;
+    setPending(true);
+    setFieldErrors({});
+    const res = await createStaffUser({ name: name.trim(), email: trimmed, password });
+    setPending(false);
+    if (!res.ok) {
+      setFieldErrors(res.fieldErrors ?? {});
+      toast(res.error);
+      return;
+    }
+    onAdded(name.trim());
     onOpenChange(false);
   };
+
+  const err = (key: string) => fieldErrors[key]?.[0];
 
   return (
     <DialogContent
       title="Add staff"
-      description="They get access to billing. Admins also manage the catalog and settings."
+      description="They get access to billing. Catalog and settings stay with admins."
       footer={
         <>
           <DialogClose className={btnSecondary}>Cancel</DialogClose>
-          <button type="button" className={btnPrimary} onClick={submit} disabled={!valid}>
+          <button type="button" className={btnPrimary} onClick={submit} disabled={!valid || pending}>
             Add staff
           </button>
         </>
@@ -50,10 +65,10 @@ function Form({ existing, onAdd, onOpenChange }: Omit<Props, "open">) {
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          submit();
+          void submit();
         }}
       >
-        <Field label="Name" htmlFor="staff-name">
+        <Field label="Name" htmlFor="staff-name" hint={err("name") ? <span className="text-danger">{err("name")}</span> : undefined}>
           <Input id="staff-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Priya Nair" autoFocus />
         </Field>
         <Field
@@ -64,6 +79,8 @@ function Form({ existing, onAdd, onOpenChange }: Omit<Props, "open">) {
               <span className="text-danger">This email is already registered.</span>
             ) : emailBad ? (
               <span className="text-danger">Enter a valid email address.</span>
+            ) : err("email") ? (
+              <span className="text-danger">{err("email")}</span>
             ) : undefined
           }
         >
@@ -75,16 +92,16 @@ function Form({ existing, onAdd, onOpenChange }: Omit<Props, "open">) {
             placeholder="priya@brightloop.test"
           />
         </Field>
-        <Field label="Role" htmlFor="staff-role">
-          <Dropdown
-            id="staff-role"
-            value={role}
-            onChange={(v) => setRole(v as "staff" | "admin")}
-            options={[
-              { value: "staff", label: "Staff" },
-              { value: "admin", label: "Admin" },
-            ]}
+        <Field label="Temporary password" htmlFor="staff-password" hint={err("password") ? <span className="text-danger">{err("password")}</span> : undefined}>
+          <Input
+            id="staff-password"
+            type="password"
+            autoComplete="new-password"
+            aria-describedby="staff-password-rules"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
           />
+          <PasswordRules password={password} id="staff-password-rules" />
         </Field>
         <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true">
           Add staff
@@ -94,11 +111,11 @@ function Form({ existing, onAdd, onOpenChange }: Omit<Props, "open">) {
   );
 }
 
-/** Admin-only dialog (the parent doesn't render it for staff). Mock: adds to local state with an Undo toast. */
-export function AddStaffDialog({ open, onOpenChange, existing, onAdd }: Props) {
+/** Admin-only dialog (the parent doesn't render it for staff). Creates the staff user through `createStaffUser`. */
+export function AddStaffDialog({ open, onOpenChange, existing, onAdded }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open ? <Form existing={existing} onAdd={onAdd} onOpenChange={onOpenChange} /> : null}
+      {open ? <Form existing={existing} onAdded={onAdded} onOpenChange={onOpenChange} /> : null}
     </Dialog>
   );
 }
