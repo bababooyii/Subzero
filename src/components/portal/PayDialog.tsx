@@ -9,18 +9,23 @@ import { formatDate, formatMoney } from "@/lib/format";
 import { btnPrimary, btnSecondary } from "@/lib/ui";
 import type { PortalInvoice } from "./types";
 
+/** `value` is what the receipt prints; `api` is what the payment action takes. */
 const METHODS = [
-  { value: "UPI", label: "UPI" },
-  { value: "Card", label: "Credit or debit card" },
-  { value: "Net banking", label: "Net banking" },
+  { value: "UPI", label: "UPI", api: "upi" },
+  { value: "Card", label: "Credit or debit card", api: "card" },
+  { value: "Net banking", label: "Net banking", api: "bank_transfer" },
 ] as const;
+
+export type PayMethod = (typeof METHODS)[number]["api"];
 
 type Props = {
   invoice: PortalInvoice | null;
   /** Server "today" (IST), printed on the receipt. */
   today: string;
   onClose: () => void;
-  /** Called when the (demo) payment completes. */
+  /** Records the payment. Resolves true on success; on failure the caller has already shown the error. */
+  onPay: (invoice: PortalInvoice, method: PayMethod) => Promise<boolean>;
+  /** Called when the receipt animation completes after a successful payment. */
   onPaid: (invoice: PortalInvoice, method: string) => void;
 };
 
@@ -30,39 +35,52 @@ const PROCESSING_MS = 1500;
 const PRINTING_MS = 2000;
 
 /**
- * Demo checkout (TODO(backend): no customer payment action exists yet, so nothing is recorded server-side):
- * pick a method, pay, then the Kitchen receipt printer runs processing → printing → complete.
+ * Checkout: pick a method, pay, then the Kitchen receipt printer runs processing → printing → complete.
+ * The payment action runs during "processing" (at least PROCESSING_MS); a failure drops back to the form.
  */
-export function PayDialog({ invoice, today, onClose, onPaid }: Props) {
+export function PayDialog({ invoice, today, onClose, onPay, onPaid }: Props) {
   return (
     <Dialog open={invoice !== null} onOpenChange={(open) => !open && onClose()}>
-      {invoice ? <PayBody key={invoice.id} invoice={invoice} today={today} onClose={onClose} onPaid={onPaid} /> : null}
+      {invoice ? <PayBody key={invoice.id} invoice={invoice} today={today} onClose={onClose} onPay={onPay} onPaid={onPaid} /> : null}
     </Dialog>
   );
 }
 
-function PayBody({ invoice, today, onClose, onPaid }: { invoice: PortalInvoice; today: string; onClose: () => void; onPaid: Props["onPaid"] }) {
+function PayBody({ invoice, today, onClose, onPay, onPaid }: { invoice: PortalInvoice; today: string; onClose: () => void; onPay: Props["onPay"]; onPaid: Props["onPaid"] }) {
   const [phase, setPhase] = useState<Phase>("form");
   const [method, setMethod] = useState<string>(METHODS[0].value);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  // Amount is fixed at open: the table row flips to Paid when the payment completes.
+  // Amount is fixed at open: the invoice behind the dialog turns Paid as soon as the refresh lands.
   const [amount] = useState(invoice.balance);
   // A stable mock reference derived from the invoice number.
   const reference = `BL${invoice.number.replace(/\D/g, "")}${method.slice(0, 2).toUpperCase()}7F2A`;
 
+  const unmounted = useRef(false);
+
   useEffect(() => {
     const pending = timers.current;
-    return () => pending.forEach(clearTimeout);
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+      pending.forEach(clearTimeout);
+    };
   }, []);
 
-  function pay() {
+  async function pay() {
+    const chosen = METHODS.find((m) => m.value === method) ?? METHODS[0];
     setPhase("processing");
+    const [paid] = await Promise.all([onPay(invoice, chosen.api), new Promise((r) => timers.current.push(setTimeout(r, PROCESSING_MS)))]);
+    if (unmounted.current) return;
+    if (!paid) {
+      setPhase("form");
+      return;
+    }
+    setPhase("printing");
     timers.current.push(
-      setTimeout(() => setPhase("printing"), PROCESSING_MS),
       setTimeout(() => {
         setPhase("complete");
         onPaid(invoice, method);
-      }, PROCESSING_MS + PRINTING_MS),
+      }, PRINTING_MS),
     );
   }
 

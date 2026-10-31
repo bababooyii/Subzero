@@ -12,18 +12,27 @@ import { btnPrimary, btnSecondary, heroBody, heroFrame } from "@/lib/ui";
 import { intervalNoun } from "./labels";
 import type { PortalSub } from "./types";
 
-type Props = { sub: PortalSub; signer: string; today: string; onAccept: () => void };
+type Props = {
+  sub: PortalSub;
+  signer: string;
+  today: string;
+  /** Resolves true when the server accepted the quotation; false (error already toasted) puts the card back to unsigned. */
+  onAccept: () => Promise<boolean>;
+};
 
 const SIGN_SECONDS = 2;
 
 /**
  * The hero of the portal overview: a quotation waiting for the customer, in a hero card that fills its parent's height.
- * The signing box takes whatever height is left. Accepting draws the signature in, then confirms the subscription;
- * the card then stays in place in its signed state (same layout, so nothing moves).
+ * The signing box takes whatever height is left. Accepting draws the signature in, then calls the accept action;
+ * the card then stays in place in its signed state (same layout, so nothing moves), also in the moment before the
+ * refreshed subscription arrives. A rejected accept (e.g. an expired quote) resets the card.
  */
 export function QuotationCard({ sub, signer, today, onAccept }: Props) {
   const [signing, setSigning] = useState(false);
-  const accepted = sub.status !== "quotation";
+  // Set as soon as the server says yes, so the signed card holds until the refresh brings the new status.
+  const [signed, setSigned] = useState(false);
+  const accepted = signed || sub.status !== "quotation";
   const validUntil = sub.quotationValidUntil ?? sub.expiryDate;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -36,7 +45,10 @@ export function QuotationCard({ sub, signer, today, onAccept }: Props) {
 
   function accept() {
     setSigning(true);
-    timer.current = setTimeout(onAccept, (SIGN_SECONDS + 0.8) * 1000);
+    timer.current = setTimeout(async () => {
+      if (await onAccept()) setSigned(true);
+      else setSigning(false);
+    }, (SIGN_SECONDS + 0.8) * 1000);
   }
 
   return (

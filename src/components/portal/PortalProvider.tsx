@@ -3,9 +3,15 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from "react";
 import { toast } from "@/components/ui/toast";
-import { cancelMySubscriptionAction, pauseMySubscriptionAction, resumeMySubscriptionAction } from "@/features/portal/actions";
+import {
+  acceptMyQuotationAction,
+  cancelMySubscriptionAction,
+  payMyInvoiceAction,
+  pauseMySubscriptionAction,
+  resumeMySubscriptionAction,
+} from "@/features/portal/actions";
 import type { ActionResult } from "@/lib/action-result";
-import { PayDialog } from "./PayDialog";
+import { PayDialog, type PayMethod } from "./PayDialog";
 import type { PortalCustomer, PortalData, PortalInvoice, PortalSub } from "./types";
 
 type Ctx = {
@@ -19,8 +25,8 @@ type Ctx = {
   pauseSub: (id: string) => Promise<boolean>;
   resumeSub: (id: string) => Promise<boolean>;
   cancelSub: (id: string) => Promise<boolean>;
-  /** Quotation accepted: the subscription becomes confirmed. */
-  acceptQuotation: (sub: PortalSub) => void;
+  /** Accepts a quotation through the portal action. Resolves true when the server accepted it (the view then refreshes). */
+  acceptQuotation: (sub: PortalSub) => Promise<boolean>;
   /** Opens the checkout for an invoice. */
   pay: (invoice: PortalInvoice) => void;
 };
@@ -35,27 +41,13 @@ export function usePortal(): Ctx {
 
 /**
  * Client home for the customer portal. The lists, records and sidebar chip all read the server data passed in as
- * `data`; pause / resume / cancel call the portal actions and then `router.refresh()`, so every screen updates together.
- * Also hosts the single Pay dialog.
- *
- * TODO(backend): customers have no payment action and no quotation-accept action (recordPaymentAction and
- * applySubscriptionAction are staff only), so paying and accepting stay local: they flip the row for this
- * session and are not saved.
+ * `data`; pause / resume / cancel, accepting a quotation and paying an invoice call the portal actions and then
+ * `router.refresh()`, so every screen updates together. Also hosts the single Pay dialog.
  */
 export function PortalProvider({ data, children }: { data: PortalData; children: ReactNode }) {
   const router = useRouter();
-  const [accepted, setAccepted] = useState<ReadonlySet<string>>(new Set());
-  const [paid, setPaid] = useState<ReadonlySet<string>>(new Set());
   const [paying, setPaying] = useState<PortalInvoice | null>(null);
-
-  const subs = useMemo(
-    () => data.subs.map((s) => (accepted.has(s.id) && s.status === "quotation" ? { ...s, status: "confirmed" as const } : s)),
-    [data.subs, accepted],
-  );
-  const invoices = useMemo(
-    () => data.invoices.map((i) => (paid.has(i.id) ? { ...i, status: "paid" as const, balance: 0 } : i)),
-    [data.invoices, paid],
-  );
+  const { subs, invoices } = data;
 
   const run = useCallback(
     async (call: () => Promise<ActionResult<null>>) => {
@@ -78,10 +70,18 @@ export function PortalProvider({ data, children }: { data: PortalData; children:
   const resumeSub = useCallback((id: string) => run(() => resumeMySubscriptionAction(id)), [run]);
   const cancelSub = useCallback((id: string) => run(() => cancelMySubscriptionAction(id)), [run]);
 
-  const acceptQuotation = useCallback((sub: PortalSub) => {
-    setAccepted((all) => new Set(all).add(sub.id));
-    toast(`Quotation ${sub.number} accepted. We will confirm the start date shortly.`);
-  }, []);
+  const acceptQuotation = useCallback(
+    async (sub: PortalSub) => {
+      const accepted = await run(() => acceptMyQuotationAction({ subscriptionId: sub.id }));
+      if (accepted) toast(`Quotation ${sub.number} accepted. We will confirm the start date shortly.`);
+      return accepted;
+    },
+    [run],
+  );
+  const payInvoice = useCallback(
+    (invoice: PortalInvoice, method: PayMethod) => run(() => payMyInvoiceAction({ invoiceId: invoice.id, method })),
+    [run],
+  );
   const pay = useCallback((invoice: PortalInvoice) => setPaying(invoice), []);
 
   const value = useMemo<Ctx>(
@@ -107,10 +107,8 @@ export function PortalProvider({ data, children }: { data: PortalData; children:
         invoice={paying}
         today={data.today}
         onClose={() => setPaying(null)}
-        onPaid={(inv, method) => {
-          setPaid((all) => new Set(all).add(inv.id));
-          toast(`${inv.number} paid via ${method}.`);
-        }}
+        onPay={payInvoice}
+        onPaid={(inv, method) => toast(`${inv.number} paid via ${method}.`)}
       />
     </PortalContext.Provider>
   );
