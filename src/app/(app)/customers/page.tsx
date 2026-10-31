@@ -4,8 +4,11 @@ import { CustomersTable } from "@/components/customers/CustomersTable";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews } from "@/components/ui/SavedViews";
-import { formatMoneyCompact } from "@/lib/format";
-import { CUSTOMER_VIEWS, customerRows, customerViewCounts, parseCustomerView } from "@/lib/mock/selectors-subscriptions";
+import { db } from "@/db/client";
+import { todayIST } from "@/lib/dates";
+import { formatMoneyCompact, formatNumber } from "@/lib/format";
+import { readPaging } from "@/lib/table-params";
+import { CUSTOMER_VIEWS, listCustomerRows, overdueCustomerCount, parseCustomerView } from "./list-query";
 
 export const metadata = { title: "Customers · Brightloop" };
 
@@ -25,10 +28,12 @@ const EMPTY: Record<string, { title: string; subtitle: string }> = {
 async function Customers({ searchParams }: PageProps<"/customers">) {
   const sp = await searchParams;
   const view = parseCustomerView(typeof sp.view === "string" ? sp.view : undefined);
-  const rows = customerRows(view);
-  const counts = customerViewCounts();
+  const today = todayIST();
+  const [list, overdueCount] = await Promise.all([
+    listCustomerRows(db, { ...readPaging(sp), view, today }),
+    overdueCustomerCount(db, today),
+  ]);
   const current = CUSTOMER_VIEWS.find((v) => v.key === view)!;
-  const outstanding = rows.reduce((n, r) => n + r.outstanding, 0);
   const empty = EMPTY[view];
 
   return (
@@ -38,8 +43,8 @@ async function Customers({ searchParams }: PageProps<"/customers">) {
         <>
           <Intro
             icon={<Users />}
-            title={`${rows.length} ${rows.length === 1 ? "customer" : "customers"}`}
-            subtitle={outstanding ? `${formatMoneyCompact(outstanding)} outstanding in this view` : current.description}
+            title={`${formatNumber(list.total)} ${list.total === 1 ? "customer" : "customers"}`}
+            subtitle={list.outstanding ? `${formatMoneyCompact(list.outstanding)} outstanding in this view` : current.description}
           />
           <SavedViews
             aria-label="Customer views"
@@ -49,13 +54,19 @@ async function Customers({ searchParams }: PageProps<"/customers">) {
               label: v.label,
               description: v.description,
               href: v.key === "all" ? "/customers" : `/customers?view=${v.key}`,
-              count: v.key === "overdue" ? counts.overdue : undefined,
+              count: v.key === "overdue" ? overdueCount : undefined,
             }))}
           />
         </>
       }
     >
-      <CustomersTable rows={rows} emptyTitle={empty?.title} emptySubtitle={empty?.subtitle} />
+      <CustomersTable
+        key={view}
+        rows={list.rows}
+        paging={{ total: list.total, page: list.page, pageSize: list.pageSize }}
+        emptyTitle={empty?.title}
+        emptySubtitle={empty?.subtitle}
+      />
     </PageGrid>
   );
 }

@@ -1,4 +1,5 @@
-import type { Interval, PaymentMethod } from "@/lib/mock/types";
+export type Interval = "daily" | "weekly" | "monthly" | "yearly";
+export type PaymentMethod = "upi" | "card" | "bank_transfer" | "cash";
 
 export const INTERVAL_LABEL: Record<Interval, string> = {
   daily: "Daily",

@@ -4,73 +4,83 @@ import { Check, FilePlus2, LayoutTemplate, Loader2, Plus, Send, Trash2 } from "l
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/helpers/classname-helper";
-import { TaxPicker } from "@/components/catalog/TaxPicker";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Field, Input } from "@/components/ui/Field";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { toast } from "@/components/ui/toast";
+import { unitPriceWithVariant } from "@/features/catalog/plan-availability";
+import { applySubscriptionAction, createFromTemplateAction, createSubscriptionAction } from "@/features/subscriptions/actions";
+import type { ActionResult } from "@/lib/action-result";
 import { formatMoney } from "@/lib/format";
-import { priceLines } from "@/lib/mock/pricing";
-import type { NewSubscriptionData } from "@/lib/mock/selectors-subscriptions";
-import { btnSecondary, btnSquare, sectionTitle, surface } from "@/lib/ui";
+import { btnSecondary, btnSquare, field, sectionTitle, surface } from "@/lib/ui";
+import { price } from "@/server/pricing";
+import type { NewSubscriptionData } from "./form-data";
 import { INTERVAL_LABEL, addDaysISO, addMonthsISO } from "./labels";
 import { PrimaryDynamicButton } from "./PrimaryDynamicButton";
 
 type Data = NewSubscriptionData;
-type DraftLine = { key: number; productId: string; variant: string; qty: number; taxId: string };
+type DraftLine = { key: number; productId: string; variantId: string; qty: number };
 type SendState = "idle" | "saving" | "sent";
 
 let keySeq = 0;
 const nextKey = () => ++keySeq;
 
-const TERMS = ["Immediate", "Net 15", "Net 30"];
 /** Layout follows the form's width (container query), not the viewport: the left column eats space at lg. */
 const lineGrid = "grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-2 @2xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_112px_64px_84px_92px_32px]";
 
-/** Price per period for a product + variant on a plan, in paise (rounded to whole rupees like the seed data). */
-function unitPrice(data: Data, productId: string, variant: string, factor: number): number {
+/** Catalog price per period for a product + variant, in paise: the same number the server snapshots onto the line. */
+function unitPrice(data: Data, productId: string, variantId: string): number {
   const product = data.products.find((p) => p.id === productId);
   if (!product) return 0;
-  const extra = product.variants.find((v) => v.label === variant)?.extraPrice ?? 0;
-  return Math.round(((product.salesPrice + extra) * factor) / 100) * 100;
+  const extra = product.variants.find((v) => v.id === variantId)?.extraPrice ?? 0;
+  return unitPriceWithVariant(product.salesPrice, extra);
 }
 
 function defaultVariant(data: Data, productId: string): string {
-  return data.products.find((p) => p.id === productId)?.variants[0]?.label ?? "";
+  return data.products.find((p) => p.id === productId)?.variants[0]?.id ?? "";
 }
 
-const DEFAULT_TAX_ID = "tax-gst18";
-
-function defaultTax(data: Data, productId: string): string {
-  const id = data.products.find((p) => p.id === productId)?.taxId;
-  return id && data.taxes.some((t) => t.id === id) ? id : DEFAULT_TAX_ID;
+/** "GST 18%" when a tax has that rate, else "18%"; "Exempt" with none. Taxes come from the product, not the line. */
+function taxLabel(data: Data, rates: number[]): string {
+  if (rates.length === 0) return "Exempt";
+  return rates.map((r) => data.taxes.find((t) => t.rateBps === r)?.name ?? `${Number((r / 100).toFixed(2))}%`).join(" + ");
 }
 
 type Props = { data: Data; initialCustomerId?: string; initialTemplateId?: string };
 
-/** Quotation builder with a live totals block. Nothing is persisted. */
+/** Quotation builder with a live totals block. Prices with the server's `price()`; saves through the subscription actions. */
 export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId }: Props) {
   const router = useRouter();
-  const defaultPlan = data.plans.find((p) => p.id === "pln-03") ?? data.plans[0];
+  const defaultPlan = data.plans[0];
+  const firstProduct = data.products[0];
   const initialTemplate = data.templates.find((t) => t.id === initialTemplateId);
 
   const makeLines = (templateId: string | null, plan: Data["plans"][number]): DraftLine[] => {
     const t = data.templates.find((x) => x.id === templateId);
-    const src = t ? t.lines : [{ productId: data.products[0].id, qty: 1 }];
-    return src.map((l) => ({ key: nextKey(), productId: l.productId, variant: defaultVariant(data, l.productId), qty: Math.max(l.qty, plan.minQty), taxId: defaultTax(data, l.productId) }));
+    const src = t ? t.lines : firstProduct ? [{ productId: firstProduct.id, variantId: defaultVariant(data, firstProduct.id) || null, qty: 1 }] : [];
+    return src.map((l) => ({ key: nextKey(), productId: l.productId, variantId: l.variantId ?? defaultVariant(data, l.productId), qty: Math.max(l.qty, plan.minQty) }));
   };
+
+  const termFor = (id: string | null | undefined) =>
+    data.paymentTerms.find((t) => t.id === id)?.id ?? data.paymentTerms.find((t) => /net 15/i.test(t.name))?.id ?? data.paymentTerms[0]?.id ?? "";
 
   const [templateId, setTemplateId] = useState<string | null>(initialTemplate?.id ?? null);
   const [customerId, setCustomerId] = useState(data.customers.some((c) => c.id === initialCustomerId) ? (initialCustomerId as string) : "");
-  const [planId, setPlanId] = useState(initialTemplate?.planId ?? defaultPlan.id);
+  const [planId, setPlanId] = useState(
+    (data.plans.some((p) => p.id === initialTemplate?.planId) ? initialTemplate?.planId : undefined) ?? defaultPlan?.id ?? "",
+  );
   const [start, setStart] = useState(data.today);
   const [expiryOverride, setExpiryOverride] = useState<string | null>(null);
-  const [terms, setTerms] = useState("Net 15");
-  const [discountId, setDiscountId] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>(() => makeLines(initialTemplate?.id ?? null, initialTemplate ? (data.plans.find((p) => p.id === initialTemplate.planId) ?? defaultPlan) : defaultPlan));
-  const [taxes, setTaxes] = useState(data.taxes);
+  const [termId, setTermId] = useState(termFor(initialTemplate?.paymentTermId));
+  const [lines, setLines] = useState<DraftLine[]>(() => {
+    const p = data.plans.find((x) => x.id === initialTemplate?.planId) ?? defaultPlan;
+    return p ? makeLines(initialTemplate?.id ?? null, p) : [];
+  });
+  /** True once the lines, plan, terms or expiry differ from the chosen template: then it is saved as a plain subscription. */
+  const [edited, setEdited] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [send, setSend] = useState<SendState>("idle");
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -80,55 +90,77 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
   }, []);
 
   const plan = data.plans.find((p) => p.id === planId) ?? defaultPlan;
-  const computedExpiry = addMonthsISO(start, plan.interval === "yearly" ? 24 : 12);
-  const expiry = expiryOverride ?? computedExpiry;
 
   const priced = useMemo(
     () =>
       lines.map((l) => ({
         ...l,
-        unit: unitPrice(data, l.productId, l.variant, plan.factor),
+        unit: unitPrice(data, l.productId, l.variantId),
+        rates: data.products.find((p) => p.id === l.productId)?.taxRatesBps ?? [],
       })),
-    [lines, data, plan.factor],
+    [lines, data],
   );
 
-  // The chosen discount is attached to the lines it applies to, then priceLines does the maths.
-  const pricedLines = useMemo(() => {
-    const d = data.discounts.find((x) => x.id === discountId);
-    const gross = priced.reduce((n, l) => n + l.qty * l.unit, 0);
-    const eligible = new Set<number>();
-    if (d && gross >= d.minPurchase) {
-      if (d.scope === "products") {
-        for (const l of priced) if (d.targetIds.includes(l.productId) && l.qty >= d.minQty) eligible.add(l.key);
-      } else if (d.type === "fixed") {
-        if (priced[0]) eligible.add(priced[0].key);
-      } else {
-        for (const l of priced) eligible.add(l.key);
-      }
-    }
-    return priced.map((l) => ({ qty: l.qty, unitPrice: l.unit, taxId: l.taxId, discountId: eligible.has(l.key) ? d?.id : undefined }));
-  }, [priced, discountId, data.discounts]);
+  // price() is the one pricing function. Lines still being typed (blank or fractional quantity) are left out of the total.
+  const totals = useMemo(
+    () =>
+      price({
+        lines: priced
+          .filter((l) => Number.isInteger(l.qty) && l.qty >= 1)
+          .map((l) => ({ key: String(l.key), productId: l.productId, quantity: l.qty, unitPrice: l.unit, taxRatesBps: l.rates })),
+        discounts: data.discounts,
+        on: data.today,
+      }),
+    [priced, data.discounts, data.today],
+  );
+  const appliedNames = totals.applied.map((a) => a.name).join(", ");
 
-  const totals = priceLines(pricedLines, taxes, data.discounts);
-  const discount = data.discounts.find((d) => d.id === discountId);
-  const discountApplies = !discount || totals.discountTotal > 0;
+  if (!plan) {
+    return (
+      <PageGrid left={<Intro icon={<FilePlus2 />} title="New subscription" subtitle="Build a quotation with a live total." />}>
+        <p className="text-[13px] text-muted">No plan is on sale today. Add or reactivate a plan in the catalog first.</p>
+      </PageGrid>
+    );
+  }
+
+  const computedExpiry = addMonthsISO(start, plan.interval === "yearly" ? 24 : 12);
+  const expiry = expiryOverride ?? computedExpiry;
 
   const badQty = lines.some((l) => !Number.isInteger(l.qty) || l.qty < plan.minQty);
   const problems = [
     !customerId && "Choose a customer",
+    !termId && "Choose payment terms",
     lines.length === 0 && "Add at least one line",
     badQty && `Quantity must be at least ${plan.minQty}`,
   ].filter(Boolean) as string[];
   const valid = problems.length === 0;
   const customerName = data.customers.find((c) => c.id === customerId)?.name ?? "customer";
+  const lineError = Object.entries(errors).find(([k]) => k === "lines" || k.startsWith("lines."))?.[1][0];
 
-  const patchLine = (key: number, patch: Partial<DraftLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const clearError = (key: string) =>
+    setErrors((e) => {
+      if (!(key in e)) return e;
+      return Object.fromEntries(Object.entries(e).filter(([k]) => k !== key));
+    });
+  const errorHint = (key: string, fallback?: React.ReactNode) => {
+    const msg = errors[key]?.[0];
+    return msg ? <span className="text-[#f43f5e]">{msg}</span> : fallback;
+  };
+
+  const patchLine = (key: number, patch: Partial<DraftLine>) => {
+    setEdited(true);
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== "lines" && !k.startsWith("lines."))));
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  };
 
   const applyTemplate = (id: string | null) => {
     const t = data.templates.find((x) => x.id === id);
-    const nextPlan = t ? (data.plans.find((p) => p.id === t.planId) ?? plan) : plan;
+    const nextPlan = (t && data.plans.find((p) => p.id === t.planId)) || plan;
     setTemplateId(id);
+    setEdited(false);
+    setErrors({});
     setPlanId(nextPlan.id);
+    if (t?.paymentTermId) setTermId(termFor(t.paymentTermId));
     setExpiryOverride(null);
     setLines(makeLines(id, nextPlan));
     toast(t ? `Loaded “${t.name}”` : "Started a blank quotation");
@@ -137,23 +169,59 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
   const changePlan = (id: string) => {
     const next = data.plans.find((p) => p.id === id);
     if (!next) return;
+    setEdited(true);
+    clearError("planId");
     setPlanId(id);
     setExpiryOverride(null);
     setLines((ls) => ls.map((l) => ({ ...l, qty: Math.max(l.qty, next.minQty) })));
   };
 
-  const saveDraft = () => toast(`Draft saved for ${customerName}`);
+  const addLine = () => {
+    if (!firstProduct) return;
+    setEdited(true);
+    setLines((ls) => [...ls, { key: nextKey(), productId: firstProduct.id, variantId: defaultVariant(data, firstProduct.id), qty: plan.minQty }]);
+  };
 
-  const sendQuotation = () => {
+  /** Saves the subscription as a draft, optionally sending the quotation straight away. */
+  const save = async (andSend: boolean) => {
     if (!valid || send !== "idle") return;
     setSend("saving");
-    timers.current.push(
-      setTimeout(() => {
-        setSend("sent");
-        toast(`Quotation sent to ${customerName}`);
-        timers.current.push(setTimeout(() => router.push("/subscriptions?view=quotation"), 900));
-      }, 800),
-    );
+    setErrors({});
+    const template = data.templates.find((t) => t.id === templateId);
+    const fromTemplate = !!template && !edited && !!template.planId && !!template.paymentTermId;
+    const created: ActionResult<{ id: string; number: string }> = fromTemplate
+      ? await createFromTemplateAction({ templateId: template.id, customerId, startDate: start })
+      : await createSubscriptionAction({
+          customerId,
+          planId,
+          startDate: start,
+          expiryDate: expiry,
+          paymentTermId: termId,
+          lines: lines.map((l) => ({ productId: l.productId, variantId: l.variantId || null, quantity: l.qty })),
+        });
+    if (!created.ok) {
+      setSend("idle");
+      setErrors(created.fieldErrors ?? {});
+      toast(created.error);
+      return;
+    }
+    const { id, number } = created.data;
+    if (!andSend) {
+      setSend("idle");
+      toast(`Draft ${number} saved for ${customerName}`);
+      router.push(`/subscriptions/${id}`);
+      return;
+    }
+    const sent = await applySubscriptionAction({ id, action: "send_quotation" });
+    if (!sent.ok) {
+      setSend("idle");
+      toast(`${number} saved as a draft. ${sent.error}`);
+      router.push(`/subscriptions/${id}`);
+      return;
+    }
+    setSend("sent");
+    toast(`Quotation sent to ${customerName}`);
+    timers.current.push(setTimeout(() => router.push("/subscriptions?view=quotations"), 900));
   };
 
   const planUnit = plan.interval === "daily" ? "day" : plan.interval === "weekly" ? "week" : plan.interval === "monthly" ? "month" : "year";
@@ -166,7 +234,7 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
         className="@container flex h-full min-h-0 flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          sendQuotation();
+          void save(true);
         }}
       >
         <section aria-label="Start from template" className="grid shrink-0 grid-cols-2 gap-2.5 @3xl:grid-cols-[repeat(auto-fit,minmax(170px,1fr))]">
@@ -200,42 +268,72 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
         </section>
 
         <section aria-label="Details" className="grid shrink-0 gap-x-4 gap-y-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-          <Field label="Customer" htmlFor="ns-customer">
+          <Field label="Customer" htmlFor="ns-customer" hint={errorHint("customerId")}>
             <Dropdown
               id="ns-customer"
               value={customerId}
-              onChange={setCustomerId}
+              onChange={(v) => {
+                clearError("customerId");
+                setCustomerId(v);
+              }}
               placeholder="Choose a customer…"
               options={[{ value: "", label: "Choose a customer…" }, ...data.customers.map((c) => ({ value: c.id, label: c.name }))]}
             />
           </Field>
-          <Field label="Plan" htmlFor="ns-plan" hint={`${INTERVAL_LABEL[plan.interval]} · minimum quantity ${plan.minQty}`}>
+          <Field label="Plan" htmlFor="ns-plan" hint={errorHint("planId", `${INTERVAL_LABEL[plan.interval]} · minimum quantity ${plan.minQty}`)}>
             <Dropdown id="ns-plan" value={planId} onChange={changePlan} options={data.plans.map((p) => ({ value: p.id, label: p.name }))} />
           </Field>
-          <Field label="Payment terms" htmlFor="ns-terms">
-            <Dropdown id="ns-terms" value={terms} onChange={setTerms} options={TERMS.map((t) => ({ value: t, label: t }))} />
+          <Field label="Payment terms" htmlFor="ns-terms" hint={errorHint("paymentTermId")}>
+            <Dropdown
+              id="ns-terms"
+              value={termId}
+              onChange={(v) => {
+                setEdited(true);
+                clearError("paymentTermId");
+                setTermId(v);
+              }}
+              options={data.paymentTerms.map((t) => ({ value: t.id, label: t.name }))}
+            />
           </Field>
-          <Field label="Start" htmlFor="ns-start">
-            <Input id="ns-start" type="date" value={start} onChange={(e) => e.target.value && setStart(e.target.value)} />
+          <Field label="Start" htmlFor="ns-start" hint={errorHint("startDate")}>
+            <Input
+              id="ns-start"
+              type="date"
+              value={start}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                clearError("startDate");
+                setStart(e.target.value);
+              }}
+            />
           </Field>
           <Field
             label="Expiry"
             htmlFor="ns-expiry"
-            hint={expiryOverride ? <button type="button" className="underline hover:text-text" onClick={() => setExpiryOverride(null)}>Reset to plan default</button> : `${plan.interval === "yearly" ? "24" : "12"} months from the start date.`}
+            hint={errorHint(
+              "expiryDate",
+              expiryOverride ? <button type="button" className="underline hover:text-text" onClick={() => setExpiryOverride(null)}>Reset to plan default</button> : `${plan.interval === "yearly" ? "24" : "12"} months from the start date.`,
+            )}
           >
-            <Input id="ns-expiry" type="date" min={addDaysISO(start, 1)} value={expiry} onChange={(e) => e.target.value && setExpiryOverride(e.target.value)} />
+            <Input
+              id="ns-expiry"
+              type="date"
+              min={addDaysISO(start, 1)}
+              value={expiry}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setEdited(true);
+                clearError("expiryDate");
+                setExpiryOverride(e.target.value);
+              }}
+            />
           </Field>
           <Field
             label="Discount"
             htmlFor="ns-discount"
-            hint={discount ? (discountApplies ? "Applied to eligible lines." : "No line is eligible yet. Check minimum quantity or purchase.") : "Only discounts that are live today are listed."}
+            hint={appliedNames ? "Applied automatically to eligible lines." : "Live discounts apply automatically when a line qualifies."}
           >
-            <Dropdown
-              id="ns-discount"
-              value={discountId}
-              onChange={setDiscountId}
-              options={[{ value: "", label: "No discount" }, ...data.discounts.map((d) => ({ value: d.id, label: d.name }))]}
-            />
+            <Input id="ns-discount" readOnly value={appliedNames || "None applicable"} className={appliedNames ? undefined : "text-muted"} />
           </Field>
         </section>
 
@@ -245,7 +343,8 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
             <button
               type="button"
               className={btnSecondary}
-              onClick={() => setLines((ls) => [...ls, { key: nextKey(), productId: data.products[0].id, variant: defaultVariant(data, data.products[0].id), qty: plan.minQty, taxId: defaultTax(data, data.products[0].id) }])}
+              disabled={!firstProduct}
+              onClick={addLine}
             >
               <Plus size={14} /> Add line
             </button>
@@ -273,33 +372,31 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
                         aria-label={`Line ${i + 1} product`}
                         className="col-span-3 @2xl:col-span-1"
                         value={l.productId}
-                        onChange={(v) => patchLine(l.key, { productId: v, variant: defaultVariant(data, v), taxId: defaultTax(data, v) })}
+                        onChange={(v) => patchLine(l.key, { productId: v, variantId: defaultVariant(data, v) })}
                         options={data.products.map((p) => ({ value: p.id, label: p.name }))}
                       />
                       <Dropdown
                         aria-label={`Line ${i + 1} variant`}
                         className="col-span-3 @2xl:col-span-1"
-                        value={l.variant}
+                        value={l.variantId}
                         disabled={!product?.variants.length}
-                        onChange={(v) => patchLine(l.key, { variant: v })}
+                        onChange={(v) => patchLine(l.key, { variantId: v })}
                         options={
                           product?.variants.length
                             ? product.variants.map((v) => ({
-                                value: v.label,
+                                value: v.id,
                                 label: `${v.label}${v.extraPrice ? ` (+${formatMoney(v.extraPrice)})` : ""}`,
                                 textValue: v.label,
                               }))
                             : [{ value: "", label: "No variants" }]
                         }
                       />
-                      <TaxPicker
-                        size="sm"
-                        className="col-span-3 @2xl:col-span-1"
-                        taxes={taxes}
-                        value={l.taxId}
-                        onChange={(v) => patchLine(l.key, { taxId: v })}
-                        onCreate={(t) => setTaxes((ts) => [...ts, t])}
-                      />
+                      <span
+                        className={cn(field, "col-span-3 flex h-7 min-w-0 items-center truncate text-muted @2xl:col-span-1")}
+                        title="Taxes follow the product"
+                      >
+                        {taxLabel(data, l.rates)}
+                      </span>
                       <Input
                         aria-label={`Line ${i + 1} quantity`}
                         aria-invalid={lowQty}
@@ -321,7 +418,10 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
                         type="button"
                         className={cn(btnSquare, "justify-self-end hover:text-[#f43f5e]")}
                         aria-label={`Remove line ${i + 1}`}
-                        onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}
+                        onClick={() => {
+                          setEdited(true);
+                          setLines((ls) => ls.filter((x) => x.key !== l.key));
+                        }}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -341,8 +441,8 @@ export function NewSubscriptionForm({ data, initialCustomerId, initialTemplateId
             <TotalCell label={`Total per ${planUnit}`} value={totals.total} strong />
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {!valid ? <p className="mr-2 text-[12px] text-muted">{problems[0]}.</p> : null}
-            <button type="button" className={btnSecondary} disabled={!customerId || send !== "idle"} onClick={saveDraft}>
+            {lineError ? <p className="mr-2 text-[12px] text-[#f43f5e]">{lineError}</p> : !valid ? <p className="mr-2 text-[12px] text-muted">{problems[0]}.</p> : null}
+            <button type="button" className={btnSecondary} disabled={!customerId || send !== "idle"} onClick={() => void save(false)}>
               Save as Draft
             </button>
             <PrimaryDynamicButton

@@ -2,17 +2,15 @@ import { Plus, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 import { SubscriptionsTable } from "@/components/subscriptions/SubscriptionsTable";
+import { SUBSCRIPTION_VIEWS, parseSubscriptionView } from "@/components/subscriptions/rows";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews } from "@/components/ui/SavedViews";
-import { formatMoneyCompact } from "@/lib/format";
-import {
-  SUBSCRIPTION_VIEWS,
-  parseSubscriptionView,
-  subscriptionRows,
-  subscriptionViewCounts,
-  totalMrr,
-} from "@/lib/mock/selectors-subscriptions";
+import { db } from "@/db/client";
+import { listSubscriptions, subscriptionCounts } from "@/features/subscriptions/queries";
+import { todayIST } from "@/lib/dates";
+import { formatNumber } from "@/lib/format";
+import { readPaging } from "@/lib/table-params";
 import { btnPrimary } from "@/lib/ui";
 
 export const metadata = { title: "Subscriptions · Brightloop" };
@@ -26,17 +24,20 @@ export default function SubscriptionsPage(props: PageProps<"/subscriptions">) {
 }
 
 const EMPTY: Record<string, { title: string; subtitle: string }> = {
-  quotation: { title: "No quotations waiting", subtitle: "Send a quotation from a draft to see it here." },
+  quotations: { title: "No quotations waiting", subtitle: "Send a quotation from a draft to see it here." },
   paused: { title: "Nothing is paused", subtitle: "Paused subscriptions land here." },
-  closing: { title: "Nothing closing soon", subtitle: "No active subscription expires within 30 days." },
-  due: { title: "You're all caught up!", subtitle: "Nothing is due to bill today." },
+  closing_this_month: { title: "Nothing closing soon", subtitle: "No subscription expires this month." },
+  due_today: { title: "You're all caught up!", subtitle: "Nothing is due to bill today." },
 };
 
 async function Subscriptions({ searchParams }: PageProps<"/subscriptions">) {
   const sp = await searchParams;
   const view = parseSubscriptionView(typeof sp.view === "string" ? sp.view : undefined);
-  const rows = subscriptionRows(view);
-  const counts = subscriptionViewCounts();
+  const today = todayIST();
+  const [list, counts] = await Promise.all([
+    listSubscriptions(db, { ...readPaging(sp), view, today }),
+    subscriptionCounts(db, today),
+  ]);
   const current = SUBSCRIPTION_VIEWS.find((v) => v.key === view)!;
   const empty = EMPTY[view];
 
@@ -47,8 +48,8 @@ async function Subscriptions({ searchParams }: PageProps<"/subscriptions">) {
         <>
           <Intro
             icon={<RefreshCw />}
-            title={`${rows.length} ${view === "all" ? "subscriptions" : current.label.toLowerCase()}`}
-            subtitle={rows.length ? `${formatMoneyCompact(totalMrr(rows))} MRR in this view` : current.description}
+            title={`${formatNumber(list.total)} ${view === "all" ? "subscriptions" : current.label.toLowerCase()}`}
+            subtitle={current.description}
           />
           <SavedViews
             aria-label="Subscription views"
@@ -57,7 +58,7 @@ async function Subscriptions({ searchParams }: PageProps<"/subscriptions">) {
               key: v.key,
               label: v.label,
               href: v.key === "all" ? "/subscriptions" : `/subscriptions?view=${v.key}`,
-              count: v.key === "due" ? counts.due : undefined,
+              count: v.key === "due_today" ? counts.dueToday : undefined,
             }))}
           />
           <Link href="/subscriptions/new" className={btnPrimary}>
@@ -66,7 +67,13 @@ async function Subscriptions({ searchParams }: PageProps<"/subscriptions">) {
         </>
       }
     >
-      <SubscriptionsTable key={view} rows={rows} emptyTitle={empty?.title} emptySubtitle={empty?.subtitle} />
+      <SubscriptionsTable
+        key={view}
+        rows={list.rows}
+        paging={{ total: list.total, page: list.page, pageSize: list.pageSize }}
+        emptyTitle={empty?.title}
+        emptySubtitle={empty?.subtitle}
+      />
     </PageGrid>
   );
 }
