@@ -19,7 +19,7 @@ export async function createDiscountAction(input: DiscountInput): Promise<Action
   try {
     const actor = await requireActor("admin");
     const row = await db.transaction((tx) => createDiscount(tx, input, actor));
-    revalidatePath("/discounts");
+    revalidatePath("/catalog/discounts");
     return ok({ id: row.id });
   } catch (err) {
     return toFailure(err);
@@ -30,7 +30,7 @@ export async function updateDiscountAction(id: string, input: DiscountInput): Pr
   try {
     const actor = await requireActor("admin");
     await db.transaction((tx) => updateDiscount(tx, id, input, actor));
-    revalidatePath("/discounts");
+    revalidatePath("/catalog/discounts");
     return ok({ id });
   } catch (err) {
     return toFailure(err);
@@ -41,7 +41,7 @@ export async function archiveDiscountAction(id: string): Promise<ActionResult<{ 
   try {
     const actor = await requireActor("admin");
     await db.transaction((tx) => archiveDiscount(tx, id, actor));
-    revalidatePath("/discounts");
+    revalidatePath("/catalog/discounts");
     return ok({ id });
   } catch (err) {
     return toFailure(err);
