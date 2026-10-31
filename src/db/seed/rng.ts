@@ -3,8 +3,9 @@
  * deterministic for a given seed. No dependencies.
  */
 
+import { addDays } from "../../lib/dates";
+
 export type YmdString = string; // "YYYY-MM-DD"
-export type IntervalUnit = "day" | "week" | "month" | "year";
 
 export interface Weighted<T> {
   value: T;
@@ -94,10 +95,7 @@ export function createRng(seed: number): Rng {
   return { next, int, pick, weighted, shuffle, chance, date, uuid };
 }
 
-// ---------------------------------------------------------------------------
-// Local date helpers (UTC, YYYY-MM-DD strings). The real ones will live in
-// src/lib/dates.ts; these exist so the seed generator stays dependency-free.
-// ---------------------------------------------------------------------------
+// Date arithmetic lives in src/lib/dates.ts; only the helpers it lacks are here.
 
 const DAY_MS = 86_400_000;
 
@@ -111,35 +109,7 @@ export function formatYmd(d: Date): YmdString {
   return d.toISOString().slice(0, 10);
 }
 
-export function addDays(s: YmdString, days: number): YmdString {
-  return formatYmd(new Date(parseYmd(s).getTime() + days * DAY_MS));
-}
-
 /** Whole days from a to b (negative when b is before a). */
 export function daysBetween(a: YmdString, b: YmdString): number {
   return Math.round((parseYmd(b).getTime() - parseYmd(a).getTime()) / DAY_MS);
-}
-
-/** Adds calendar months, clamping to the last day of the target month (31 Jan + 1 month = 28/29 Feb). */
-export function addMonths(s: YmdString, months: number): YmdString {
-  const d = parseYmd(s);
-  const day = d.getUTCDate();
-  const total = d.getUTCFullYear() * 12 + d.getUTCMonth() + months;
-  const year = Math.floor(total / 12);
-  const month = total - year * 12;
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  return formatYmd(new Date(Date.UTC(year, month, Math.min(day, lastDay))));
-}
-
-export function addInterval(s: YmdString, unit: IntervalUnit, count: number): YmdString {
-  switch (unit) {
-    case "day":
-      return addDays(s, count);
-    case "week":
-      return addDays(s, count * 7);
-    case "month":
-      return addMonths(s, count);
-    case "year":
-      return addMonths(s, count * 12);
-  }
 }

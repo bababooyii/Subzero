@@ -21,14 +21,10 @@ import {
   type ProductFixture,
   type VariantFixture,
 } from "./fixtures";
-import {
-  addDays,
-  addInterval,
-  addMonths,
-  createRng,
-  type Rng,
-  type YmdString,
-} from "./rng";
+import { addDays, addInterval } from "../../lib/dates";
+import { createRng, type Rng, type YmdString } from "./rng";
+
+const addMonths = (s: YmdString, months: number) => addInterval(s, "monthly", months);
 
 export type SubscriptionStatus = "draft" | "quotation" | "confirmed" | "active" | "paused" | "closed";
 
@@ -47,7 +43,7 @@ export interface ProductRow { id: string; name: string; salesPrice: number; cost
 export interface VariantRow { id: string; productId: string; attribute: string; value: string; extraPrice: number }
 export interface PlanRow {
   id: string; name: string; price: number; interval: PlanFixture["interval"]; intervalCount: number;
-  minQty: number; canCloseEarly: boolean; canPause: boolean; canRenew: boolean; autoClose: boolean;
+  minQty: number; closable: boolean; pausable: boolean; renewable: boolean; autoClose: boolean;
 }
 export interface TemplateRow {
   id: string; name: string; validityDays: number; planId: string; paymentTermId: string;
@@ -55,8 +51,8 @@ export interface TemplateRow {
 }
 export interface DiscountRow {
   id: string; code: string; name: string; kind: "percent" | "fixed"; value: number;
-  scope: "subscription" | "product"; productId: string | null;
-  validFrom: YmdString; validTo: YmdString | null; usageLimit: number | null; timesUsed: number;
+  scope: "subscription" | "products"; productId: string | null;
+  startsOn: YmdString | null; endsOn: YmdString | null; usageLimit: number | null; usedCount: number;
 }
 export interface CustomerRow {
   id: string; name: string; company: string; email: string; phone: string;
@@ -124,7 +120,7 @@ function periodsBefore(subscriptionId: string, start: YmdString, plan: PlanFixtu
 /** How far back (in days) a new subscription of this plan may start. */
 function startRange(plan: PlanFixture, windowStart: YmdString, today: YmdString): [YmdString, YmdString] {
   const latest = addDays(today, -3);
-  const maxBack = plan.interval === "day" ? 30 : plan.interval === "week" ? 180 : Infinity;
+  const maxBack = plan.interval === "daily" ? 30 : plan.interval === "weekly" ? 180 : Infinity;
   const earliest = maxBack === Infinity ? windowStart : addDays(today, -maxBack);
   return [earliest > windowStart ? earliest : windowStart, latest];
 }
@@ -167,7 +163,7 @@ export function generateDataset(opts: DatasetOptions): Dataset {
 
   const plans: PlanRow[] = planFixtures.map((p) => ({
     id: id(), name: p.name, price: p.price, interval: p.interval, intervalCount: p.intervalCount, minQty: p.minQty,
-    canCloseEarly: p.canCloseEarly, canPause: p.canPause, canRenew: p.canRenew, autoClose: p.autoClose,
+    closable: p.closable, pausable: p.pausable, renewable: p.renewable, autoClose: p.autoClose,
   }));
   const planIdByKey = new Map(planFixtures.map((p, i) => [p.key, (plans[i] as PlanRow).id]));
   const planFxById = new Map(planFixtures.map((p, i) => [(plans[i] as PlanRow).id, p]));
@@ -188,7 +184,7 @@ export function generateDataset(opts: DatasetOptions): Dataset {
   const discounts: DiscountRow[] = discountFixtures.map((d) => ({
     id: id(), code: d.code, name: d.name, kind: d.kind, value: d.value, scope: d.scope,
     productId: d.productKey ? need(productIdByKey.get(d.productKey), `product ${d.productKey}`) : null,
-    validFrom: d.validFrom, validTo: d.validTo, usageLimit: d.usageLimit, timesUsed: d.timesUsed,
+    startsOn: d.startsOn, endsOn: d.endsOn, usageLimit: d.usageLimit, usedCount: d.usedCount,
   }));
 
   // --- customers --------------------------------------------------------
@@ -264,10 +260,10 @@ export function generateDataset(opts: DatasetOptions): Dataset {
       if (isPortal) {
         customerId = (customers[portalAssigned % 5] as CustomerRow).id;
         // first five portal subscriptions use a pausable plan so the portal demo can pause one
-        setPlan(portalAssigned < 5 ? pickPlan((p) => p.canPause) : pickPlan());
+        setPlan(portalAssigned < 5 ? pickPlan((p) => p.pausable) : pickPlan());
         portalAssigned++;
-      } else if (status === "paused") setPlan(pickPlan((p) => p.canPause));
-      else if (status === "closed") setPlan(pickPlan((p) => p.canCloseEarly || p.autoClose));
+      } else if (status === "paused") setPlan(pickPlan((p) => p.pausable));
+      else if (status === "closed") setPlan(pickPlan((p) => p.closable || p.autoClose));
       else setPlan(pickPlan());
 
       if (isDue) {
@@ -275,8 +271,8 @@ export function generateDataset(opts: DatasetOptions): Dataset {
         let found: YmdString | null = null;
         for (let attempts = 0; attempts < 20 && !found; attempts++) {
           if (attempts > 0) setPlan(pickPlan());
-          const maxK = planFx!.interval === "day" ? 30 : planFx!.interval === "week" ? 26
-            : Math.floor(18 / (planFx!.intervalCount * (planFx!.interval === "year" ? 12 : 1)));
+          const maxK = planFx!.interval === "daily" ? 30 : planFx!.interval === "weekly" ? 26
+            : Math.floor(18 / (planFx!.intervalCount * (planFx!.interval === "yearly" ? 12 : 1)));
           if (maxK < 1) continue;
           for (let k = rng.int(1, maxK); k <= maxK + 3 && !found; k++) {
             const cand = addInterval(today, planFx!.interval, -planFx!.intervalCount * k);

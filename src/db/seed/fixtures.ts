@@ -4,7 +4,8 @@
  * UUIDs.
  */
 
-import type { IntervalUnit, YmdString } from "./rng";
+import type { Interval } from "../../lib/dates";
+import type { YmdString } from "./rng";
 
 export interface TaxFixture {
   key: string;
@@ -88,26 +89,26 @@ export interface PlanFixture {
   name: string;
   /** Plan fee in paise (informational; line prices drive invoice totals). */
   price: number;
-  interval: IntervalUnit;
+  interval: Interval;
   intervalCount: number;
   minQty: number;
-  canCloseEarly: boolean;
-  canPause: boolean;
-  canRenew: boolean;
+  closable: boolean;
+  pausable: boolean;
+  renewable: boolean;
   autoClose: boolean;
   /** Relative weight when assigning a plan to a generated subscription. */
   weight: number;
 }
 
 export const plans: readonly PlanFixture[] = [
-  { key: "daily-pass", name: "Daily Pass", price: 0, interval: "day", intervalCount: 1, minQty: 1, canCloseEarly: true, canPause: false, canRenew: false, autoClose: true, weight: 3 },
-  { key: "weekly-starter", name: "Weekly Starter", price: 0, interval: "week", intervalCount: 1, minQty: 1, canCloseEarly: true, canPause: true, canRenew: false, autoClose: false, weight: 5 },
-  { key: "monthly-basic", name: "Monthly Basic", price: 0, interval: "month", intervalCount: 1, minQty: 1, canCloseEarly: true, canPause: false, canRenew: true, autoClose: false, weight: 25 },
-  { key: "monthly-pro", name: "Monthly Pro", price: 49900, interval: "month", intervalCount: 1, minQty: 1, canCloseEarly: true, canPause: true, canRenew: true, autoClose: false, weight: 22 },
-  { key: "monthly-flex", name: "Monthly Flexible", price: 0, interval: "month", intervalCount: 1, minQty: 1, canCloseEarly: true, canPause: true, canRenew: false, autoClose: false, weight: 15 },
-  { key: "quarterly-business", name: "Quarterly Business", price: 99900, interval: "month", intervalCount: 3, minQty: 1, canCloseEarly: false, canPause: true, canRenew: true, autoClose: false, weight: 8 },
-  { key: "yearly-standard", name: "Yearly Standard", price: 0, interval: "year", intervalCount: 1, minQty: 1, canCloseEarly: true, canPause: true, canRenew: true, autoClose: false, weight: 14 },
-  { key: "yearly-locked", name: "Yearly Committed", price: 199900, interval: "year", intervalCount: 1, minQty: 5, canCloseEarly: false, canPause: false, canRenew: true, autoClose: true, weight: 8 },
+  { key: "daily-pass", name: "Daily Pass", price: 0, interval: "daily", intervalCount: 1, minQty: 1, closable: true, pausable: false, renewable: false, autoClose: true, weight: 3 },
+  { key: "weekly-starter", name: "Weekly Starter", price: 0, interval: "weekly", intervalCount: 1, minQty: 1, closable: true, pausable: true, renewable: false, autoClose: false, weight: 5 },
+  { key: "monthly-basic", name: "Monthly Basic", price: 0, interval: "monthly", intervalCount: 1, minQty: 1, closable: true, pausable: false, renewable: true, autoClose: false, weight: 25 },
+  { key: "monthly-pro", name: "Monthly Pro", price: 49900, interval: "monthly", intervalCount: 1, minQty: 1, closable: true, pausable: true, renewable: true, autoClose: false, weight: 22 },
+  { key: "monthly-flex", name: "Monthly Flexible", price: 0, interval: "monthly", intervalCount: 1, minQty: 1, closable: true, pausable: true, renewable: false, autoClose: false, weight: 15 },
+  { key: "quarterly-business", name: "Quarterly Business", price: 99900, interval: "monthly", intervalCount: 3, minQty: 1, closable: false, pausable: true, renewable: true, autoClose: false, weight: 8 },
+  { key: "yearly-standard", name: "Yearly Standard", price: 0, interval: "yearly", intervalCount: 1, minQty: 1, closable: true, pausable: true, renewable: true, autoClose: false, weight: 14 },
+  { key: "yearly-locked", name: "Yearly Committed", price: 199900, interval: "yearly", intervalCount: 1, minQty: 5, closable: false, pausable: false, renewable: true, autoClose: true, weight: 8 },
 ];
 
 export interface TemplateLineFixture {
@@ -183,21 +184,21 @@ export interface DiscountFixture {
   kind: "percent" | "fixed";
   /** bps when percent, paise when fixed. */
   value: number;
-  scope: "subscription" | "product";
+  scope: "subscription" | "products";
   productKey?: string;
-  validFrom: YmdString;
-  validTo: YmdString | null;
+  startsOn: YmdString;
+  endsOn: YmdString | null;
   usageLimit: number | null;
-  timesUsed: number;
+  usedCount: number;
 }
 
 export const discounts: readonly DiscountFixture[] = [
-  { code: "WELCOME10", name: "Welcome 10% off", kind: "percent", value: 1000, scope: "subscription", validFrom: "2025-01-01", validTo: null, usageLimit: null, timesUsed: 212 },
-  { code: "EARLYBIRD15", name: "Early bird 15% (expired)", kind: "percent", value: 1500, scope: "subscription", validFrom: "2025-04-01", validTo: "2026-03-31", usageLimit: null, timesUsed: 88 },
-  { code: "LAUNCH500", name: "Launch flat Rs 500 (used up)", kind: "fixed", value: 50000, scope: "subscription", validFrom: "2025-06-01", validTo: "2027-06-01", usageLimit: 100, timesUsed: 100 },
-  { code: "ERP25", name: "ERP 25% off", kind: "percent", value: 2500, scope: "product", productKey: "erp", validFrom: "2026-01-01", validTo: "2027-03-31", usageLimit: 500, timesUsed: 41 },
-  { code: "SUPPORT200", name: "Priority Support Rs 200 off", kind: "fixed", value: 20000, scope: "product", productKey: "support", validFrom: "2026-04-01", validTo: null, usageLimit: 250, timesUsed: 17 },
-  { code: "DIWALI20", name: "Diwali 20% off", kind: "percent", value: 2000, scope: "subscription", validFrom: "2026-10-15", validTo: "2026-11-15", usageLimit: 300, timesUsed: 23 },
+  { code: "WELCOME10", name: "Welcome 10% off", kind: "percent", value: 1000, scope: "subscription", startsOn: "2025-01-01", endsOn: null, usageLimit: null, usedCount: 212 },
+  { code: "EARLYBIRD15", name: "Early bird 15% (expired)", kind: "percent", value: 1500, scope: "subscription", startsOn: "2025-04-01", endsOn: "2026-03-31", usageLimit: null, usedCount: 88 },
+  { code: "LAUNCH500", name: "Launch flat Rs 500 (used up)", kind: "fixed", value: 50000, scope: "subscription", startsOn: "2025-06-01", endsOn: "2027-06-01", usageLimit: 100, usedCount: 100 },
+  { code: "ERP25", name: "ERP 25% off", kind: "percent", value: 2500, scope: "products", productKey: "erp", startsOn: "2026-01-01", endsOn: "2027-03-31", usageLimit: 500, usedCount: 41 },
+  { code: "SUPPORT200", name: "Priority Support Rs 200 off", kind: "fixed", value: 20000, scope: "products", productKey: "support", startsOn: "2026-04-01", endsOn: null, usageLimit: 250, usedCount: 17 },
+  { code: "DIWALI20", name: "Diwali 20% off", kind: "percent", value: 2000, scope: "subscription", startsOn: "2026-10-15", endsOn: "2026-11-15", usageLimit: 300, usedCount: 23 },
 ];
 
 // ---------------------------------------------------------------------------

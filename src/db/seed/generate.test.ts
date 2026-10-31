@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { generateDataset } from "./generate";
-import { addDays, addInterval, addMonths, createRng, daysBetween } from "./rng";
+import { addDays, addInterval } from "../../lib/dates";
+import { createRng, daysBetween } from "./rng";
+
+const addMonths = (s: string, n: number) => addInterval(s, "monthly", n);
 
 const OPTS = { seed: 42, today: "2026-10-31", customers: 400, subscriptions: 5000 } as const;
 const data = generateDataset(OPTS);
@@ -35,8 +38,8 @@ describe("date helpers", () => {
     expect(addMonths("2026-10-31", 1)).toBe("2026-11-30");
     expect(addMonths("2026-12-15", 1)).toBe("2027-01-15");
     expect(addMonths("2026-03-31", -1)).toBe("2026-02-28");
-    expect(addInterval("2024-02-29", "year", 1)).toBe("2025-02-28");
-    expect(addInterval("2026-10-31", "week", 2)).toBe("2026-11-14");
+    expect(addInterval("2024-02-29", "yearly", 1)).toBe("2025-02-28");
+    expect(addInterval("2026-10-31", "weekly", 2)).toBe("2026-11-14");
   });
 });
 
@@ -124,6 +127,6 @@ describe("generateDataset", () => {
 
   it("only pauses subscriptions on pausable plans", () => {
     const planById = new Map(data.plans.map((p) => [p.id, p]));
-    for (const s of data.subscriptions.filter((x) => x.status === "paused")) expect(planById.get(s.planId)?.canPause).toBe(true);
+    for (const s of data.subscriptions.filter((x) => x.status === "paused")) expect(planById.get(s.planId)?.pausable).toBe(true);
   });
 });
