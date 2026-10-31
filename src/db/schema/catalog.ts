@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
+  index,
   integer,
   pgTable,
   primaryKey,
@@ -23,7 +25,10 @@ export const customers = pgTable("customers", {
   address: text("address"),
   gstin: text("gstin"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("customers_name_trgm_idx").using("gin", sql`${t.name} gin_trgm_ops`),
+  index("customers_email_trgm_idx").using("gin", sql`${t.email} gin_trgm_ops`),
+]);
 
 export const products = pgTable("products", {
   id: uuid("id").primaryKey().defaultRandom(),
