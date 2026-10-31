@@ -7,6 +7,8 @@ import { customers, user } from "@/db/schema";
 import { fail, fromZodError, ok, type ActionResult } from "@/lib/action-result";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/auth/session";
+import { listUsers, type ListUsersParams, type UserRow } from "./queries";
+import type { Paged } from "@/lib/pagination";
 
 const createStaffSchema = z.object({
   name: z.string().trim().min(1),
@@ -35,5 +37,21 @@ export async function createStaffUser(
     return ok({ id: res.user.id });
   } catch (err) {
     return fail(err instanceof Error ? err.message : "Could not create user");
+  }
+}
+
+export async function listUsersAction(
+  params: ListUsersParams = {},
+): Promise<ActionResult<Paged<UserRow>>> {
+  try {
+    await requireRole("admin");
+  } catch {
+    return fail("Forbidden");
+  }
+  try {
+    return ok(await listUsers(db, params));
+  } catch (err) {
+    console.error(err);
+    return fail("Something went wrong");
   }
 }
