@@ -14,6 +14,7 @@ import {
 } from "@/db/schema";
 import type { Actor } from "@/lib/auth/session";
 import { toLimitOffset, type ListParams, type Paged } from "@/lib/pagination";
+import { availableSubscriptionActions } from "@/server/state-machine";
 import { resolveCustomerId, type Db } from "./scope";
 
 /** Seller block printed on invoices. */
@@ -27,12 +28,15 @@ export const COMPANY = {
 type SubStatus = Subscription["status"];
 type PlanFlags = { pausable: boolean; closable: boolean };
 
-/** What the portal customer may do to a subscription, from its status and the plan flags. */
+/** What the portal customer may do to a subscription, from the state machine's available actions. */
 export function portalSubscriptionActions(subStatus: SubStatus, plan: PlanFlags) {
+  const actions = availableSubscriptionActions(subStatus, {
+    plan: { ...plan, renewable: false, autoClose: false },
+  }).map((a) => a.action);
   return {
-    canPause: subStatus === "active" && plan.pausable,
-    canResume: subStatus === "paused",
-    canCancel: (subStatus === "active" || subStatus === "paused") && plan.closable,
+    canPause: actions.includes("pause"),
+    canResume: actions.includes("resume"),
+    canCancel: actions.includes("close"),
   };
 }
 

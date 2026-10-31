@@ -1,17 +1,14 @@
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { DB, Tx } from "@/db/client";
 import {
   paymentTerms,
   plans,
-  productTaxes,
-  productVariants,
-  products,
   quotationTemplateLines,
   quotationTemplates,
   subscriptionLines,
   subscriptions,
-  taxes,
 } from "@/db/schema";
+import { lineUnitPrice } from "@/features/catalog/queries";
 import type { Actor } from "@/lib/auth/session";
 import { addDays, addInterval } from "@/lib/dates";
 import { logActivity } from "@/server/activity-log";
@@ -50,40 +47,6 @@ const ACTION_TARGET: Record<SubscriptionAction, SubscriptionStatus> = {
   revise: "draft",
 };
 
-/**
- * Catalog price of one unit (paise) plus the tax rates (bps) of the product.
- * TODO: switch to @/features/catalog/queries lineUnitPrice after lane B merges
- */
-export async function subscriptionLinePrice(
-  db: Executor,
-  productId: string,
-  variantId: string | null,
-): Promise<{ unitPrice: number; taxRatesBps: number[] }> {
-  const [product] = await db
-    .select({ salesPrice: products.salesPrice })
-    .from(products)
-    .where(eq(products.id, productId));
-  if (!product) throw new SubscriptionError("Product not found");
-
-  let extra = 0;
-  if (variantId) {
-    const [variant] = await db
-      .select({ extraPrice: productVariants.extraPrice })
-      .from(productVariants)
-      .where(and(eq(productVariants.id, variantId), eq(productVariants.productId, productId)));
-    if (!variant) throw new SubscriptionError("Variant does not belong to the product");
-    extra = variant.extraPrice;
-  }
-
-  const rates = await db
-    .select({ rateBps: taxes.rateBps })
-    .from(productTaxes)
-    .innerJoin(taxes, eq(taxes.id, productTaxes.taxId))
-    .where(and(eq(productTaxes.productId, productId), eq(taxes.active, true)));
-
-  return { unitPrice: product.salesPrice + extra, taxRatesBps: rates.map((r) => r.rateBps) };
-}
-
 async function nextNumber(db: Executor): Promise<string> {
   const rows = await db.execute<{ n: string }>(sql`select nextval('subscription_number_seq')::text as n`);
   return `SUB-${String(rows[0].n).padStart(4, "0")}`;
@@ -100,7 +63,7 @@ async function resolveLines(
       throw new SubscriptionError(`Minimum quantity for this plan is ${plan.minQty}`);
     }
     const unitPrice =
-      line.unitPrice ?? (await subscriptionLinePrice(db, line.productId, line.variantId)).unitPrice;
+      line.unitPrice ?? (await lineUnitPrice(db, line.productId, line.variantId)).unitPrice;
     out.push({
       productId: line.productId,
       variantId: line.variantId,
