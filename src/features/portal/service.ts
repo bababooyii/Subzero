@@ -1,9 +1,17 @@
-import { and, eq } from "drizzle-orm";
-import { plans, subscriptions, type Subscription } from "@/db/schema";
+import { and, eq, ne, sql } from "drizzle-orm";
+import { customers, invoices, plans, subscriptions, type Subscription } from "@/db/schema";
+import { todayIST } from "@/lib/dates";
+import { PaymentError, recordPayment } from "@/features/payments/service";
+import { InvalidTransitionError, transitionSubscription } from "@/server/state-machine";
 import { fail, fromZodError, ok, type ActionResult } from "@/lib/action-result";
 import type { Actor } from "@/lib/auth/session";
 import { portalSubscriptionActions } from "./queries";
-import { subscriptionIdSchema } from "./schemas";
+import {
+  acceptQuotationInput,
+  payMyInvoiceInput,
+  subscriptionIdSchema,
+  updateMyContactInput,
+} from "./schemas";
 import { resolveCustomerId, type Db } from "./scope";
 
 type Target = Extract<Subscription["status"], "paused" | "active" | "closed">;
@@ -65,3 +73,92 @@ export const resumeMySubscription = (db: Db, actor: Actor, input: unknown, deps:
   run(db, actor, input, "resume", deps);
 export const cancelMySubscription = (db: Db, actor: Actor, input: unknown, deps: PortalDeps) =>
   run(db, actor, input, "cancel", deps);
+
+export async function payMyInvoice(db: Db, actor: Actor, input: unknown): Promise<ActionResult<null>> {
+  const parsed = payMyInvoiceInput.safeParse(input);
+  if (!parsed.success) return fromZodError(parsed.error);
+
+  const customerId = await resolveCustomerId(db, actor);
+  if (!customerId) return fail("Not found");
+
+  const [inv] = await db
+    .select()
+    .from(invoices)
+    .where(and(eq(invoices.id, parsed.data.invoiceId), eq(invoices.customerId, customerId)))
+    .limit(1);
+  if (!inv) return fail("Not found");
+  if (inv.status !== "confirmed") return fail("This invoice cannot be paid right now");
+  const balance = inv.total - inv.amountPaid;
+  if (balance <= 0) return fail("Nothing is due on this invoice");
+
+  try {
+    // Mock gateway: the full balance is treated as paid immediately.
+    await recordPayment(
+      db,
+      {
+        invoiceId: inv.id,
+        method: parsed.data.method,
+        amount: balance,
+        paidOn: todayIST(),
+        note: "Paid via customer portal",
+      },
+      actor,
+    );
+  } catch (err) {
+    if (err instanceof PaymentError || err instanceof InvalidTransitionError) return fail(err.message);
+    throw err;
+  }
+  return ok(null);
+}
+
+export async function acceptMyQuotation(db: Db, actor: Actor, input: unknown): Promise<ActionResult<null>> {
+  const parsed = acceptQuotationInput.safeParse(input);
+  if (!parsed.success) return fromZodError(parsed.error);
+
+  const customerId = await resolveCustomerId(db, actor);
+  if (!customerId) return fail("Not found");
+
+  const [sub] = await db
+    .select()
+    .from(subscriptions)
+    .where(and(eq(subscriptions.id, parsed.data.subscriptionId), eq(subscriptions.customerId, customerId)))
+    .limit(1);
+  if (!sub) return fail("Not found");
+  if (sub.status !== "quotation") return fail("This quotation cannot be accepted");
+  if (sub.quotationValidUntil && sub.quotationValidUntil < todayIST()) {
+    return fail("This quotation has expired");
+  }
+
+  try {
+    await transitionSubscription(db, { id: sub.id, to: "confirmed", actor });
+  } catch (err) {
+    if (err instanceof InvalidTransitionError) return fail(err.message);
+    throw err;
+  }
+  return ok(null);
+}
+
+export async function updateMyContact(db: Db, actor: Actor, input: unknown): Promise<ActionResult<null>> {
+  const parsed = updateMyContactInput.safeParse(input);
+  if (!parsed.success) return fromZodError(parsed.error);
+
+  const customerId = await resolveCustomerId(db, actor);
+  if (!customerId) return fail("Not found");
+
+  const v = parsed.data;
+  const [clash] = await db
+    .select({ id: customers.id })
+    .from(customers)
+    .where(and(sql`lower(${customers.email}) = ${v.email}`, ne(customers.id, customerId)))
+    .limit(1);
+  if (clash) {
+    const msg = "A customer with this email already exists";
+    return fail(msg, { email: [msg] });
+  }
+
+  await db
+    .update(customers)
+    .set({ name: v.name, email: v.email, phone: v.phone || null, address: v.address || null })
+    .where(eq(customers.id, customerId));
+  return ok(null);
+}
