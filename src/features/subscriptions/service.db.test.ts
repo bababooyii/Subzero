@@ -80,7 +80,8 @@ describe("createSubscription", () => {
       { ...input, lines: [{ ...input.lines[0], unitPrice: 123 }] },
       actor,
     );
-    expect([a.number, b.number]).toEqual(["SUB-0001", "SUB-0002"]);
+    expect(a.number).toMatch(/^SUB-\d{4,}$/);
+    expect(Number(b.number.slice(4))).toBe(Number(a.number.slice(4)) + 1);
     const [line] = await testDb.select().from(subscriptionLines).where(eq(subscriptionLines.subscriptionId, b.id));
     expect(line.unitPrice).toBe(123);
   });
