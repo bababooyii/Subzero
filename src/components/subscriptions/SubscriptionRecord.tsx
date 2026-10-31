@@ -1,8 +1,9 @@
 "use client";
 
-import { Pause, Play, RefreshCw, XCircle } from "lucide-react";
+import { Pause, Play, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { ScrambleText } from "@/components/kitchen/ScrambleText";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
@@ -11,13 +12,13 @@ import { PageGrid } from "@/components/ui/PageGrid";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { Stepper } from "@/components/ui/Stepper";
 import { StatusDot } from "@/components/ui/StatusDot";
-import { Timeline, type TimelineEvent } from "@/components/ui/Timeline";
+import { Timeline } from "@/components/ui/Timeline";
 import { toast } from "@/components/ui/toast";
+import { applySubscriptionAction } from "@/features/subscriptions/actions";
 import { formatDate, formatDateLong, formatMoney } from "@/lib/format";
-import { TODAY } from "@/lib/mock/clock";
-import type { InvoiceRow, SubscriptionDetail, SubscriptionLineRow } from "@/lib/mock/selectors-subscriptions";
-import type { SubscriptionStatus } from "@/lib/mock/types";
 import { btnPrimary, btnSecondary, hint, sectionTitle, surface } from "@/lib/ui";
+import type { SubscriptionAction } from "@/server/state-machine/subscription";
+import type { InvoiceRow, SubscriptionDetail, SubscriptionLineRow } from "./rows";
 
 const lineColumns: TableColumn<SubscriptionLineRow>[] = [
   {
@@ -60,15 +61,28 @@ const invoiceColumns: TableColumn<InvoiceRow>[] = [
   { accessorKey: "balance", header: "Balance", cell: ({ row }) => formatMoney(row.original.balance), meta: { align: "right" } },
 ];
 
-/** The state a subscription moves to when the white button is pressed. */
-const NEXT: Partial<Record<SubscriptionStatus, { to: SubscriptionStatus; label: string; done: string }>> = {
-  draft: { to: "quotation", label: "Send quotation", done: "quotation sent" },
-  quotation: { to: "confirmed", label: "Confirm", done: "confirmed" },
-  confirmed: { to: "active", label: "Activate", done: "activated" },
-  paused: { to: "active", label: "Resume", done: "resumed" },
+/** The forward move shown as the white button: whichever of these the state machine offers. */
+const FORWARD: SubscriptionAction[] = ["send_quotation", "confirm", "activate", "resume"];
+
+/** Past-tense text for the toast. */
+const DONE: Record<SubscriptionAction, string> = {
+  send_quotation: "quotation sent",
+  confirm: "confirmed",
+  activate: "activated",
+  pause: "paused",
+  resume: "resumed",
+  close: "closed",
+  cancel: "cancelled",
+  revise: "moved back to draft",
 };
 
-const ACTOR = "Asha Menon";
+/** The action that reverses another one, for the Undo toast. Moves like confirm have none. */
+const INVERSE: Partial<Record<SubscriptionAction, SubscriptionAction>> = {
+  pause: "resume",
+  resume: "pause",
+  send_quotation: "revise",
+  revise: "send_quotation",
+};
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -88,40 +102,40 @@ function TotalCell({ label, value, strong }: { label: string; value: number; str
   );
 }
 
-/** Subscription record. State moves are local only; every move adds a timeline event. */
+/** Subscription record. Buttons come from the state machine's `availableActions`; the server owns every move. */
 export function SubscriptionRecord({ detail }: { detail: SubscriptionDetail }) {
-  const [status, setStatus] = useState<SubscriptionStatus>(detail.status);
-  const [local, setLocal] = useState<TimelineEvent[]>([]);
-  const seq = useRef(0);
-  const { plan } = detail;
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const { plan, status } = detail;
 
-  /** Adds a timeline event and returns its id. Mock clock plus one minute per event keeps order stable. */
-  const log = (text: string) => {
-    const n = ++seq.current;
-    const id = `local-${n}`;
-    setLocal((ev) => [{ id, at: new Date(TODAY.getTime() + n * 60000).toISOString(), text }, ...ev]);
-    return id;
-  };
-
-  const move = (to: SubscriptionStatus, done: string, from: SubscriptionStatus) => {
-    setStatus(to);
-    const id = log(`${detail.number} ${done} by ${ACTOR}`);
-    toast.undo(`${detail.number} ${done}`, () => {
-      setStatus(from);
-      setLocal((ev) => ev.filter((e) => e.id !== id));
+  const run = (action: SubscriptionAction) =>
+    startTransition(async () => {
+      const res = await applySubscriptionAction({ id: detail.id, action });
+      if (!res.ok) {
+        toast(res.error);
+        return;
+      }
+      router.refresh();
+      const inverse = INVERSE[action];
+      const message = `${detail.number} ${DONE[action]}`;
+      if (!inverse) {
+        toast(message);
+        return;
+      }
+      toast.undo(message, async () => {
+        const back = await applySubscriptionAction({ id: detail.id, action: inverse });
+        if (!back.ok) toast(back.error);
+        else router.refresh();
+      });
     });
-  };
 
-  const close = () => {
-    setStatus("closed");
-    log(`${detail.number} closed by ${ACTOR}`);
-    toast(`${detail.number} closed`);
-  };
-
-  const next = NEXT[status];
-  const canPause = status === "active" && plan.pausable;
-  const canClose = (status === "active" || status === "paused") && plan.closable;
-  const events = [...local, ...detail.events];
+  const offered = (a: SubscriptionAction) => detail.actions.find((x) => x.action === a);
+  const next = detail.actions.find((x) => FORWARD.includes(x.action));
+  const canPause = !!offered("pause");
+  const canRevise = !!offered("revise");
+  const canClose = !!offered("close");
+  const canCancel = !!offered("cancel");
+  const events = detail.events;
   const hasNotes = status === "closed" || !plan.closable || ((status === "active" || status === "paused") && !plan.pausable);
 
   return (
@@ -134,14 +148,19 @@ export function SubscriptionRecord({ detail }: { detail: SubscriptionDetail }) {
             subtitle={<StatusDot status={status} strong />}
           />
           {next ? (
-            <button type="button" className={btnPrimary} onClick={() => move(next.to, next.done, status)}>
-              {status === "paused" ? <Play size={13} strokeWidth={2.5} /> : null}
+            <button type="button" className={btnPrimary} disabled={pending} onClick={() => run(next.action)}>
+              {next.action === "resume" ? <Play size={13} strokeWidth={2.5} /> : null}
               {next.label}
             </button>
           ) : null}
           {canPause ? (
-            <button type="button" className={btnSecondary} onClick={() => move("paused", "paused", status)}>
+            <button type="button" className={btnSecondary} disabled={pending} onClick={() => run("pause")}>
               <Pause size={13} /> Pause
+            </button>
+          ) : null}
+          {canRevise ? (
+            <button type="button" className={btnSecondary} disabled={pending} onClick={() => run("revise")}>
+              <RotateCcw size={13} /> Revise
             </button>
           ) : null}
           {canClose ? (
@@ -149,9 +168,21 @@ export function SubscriptionRecord({ detail }: { detail: SubscriptionDetail }) {
               title={`Close ${detail.number}?`}
               description="Billing stops and the subscription can't be reopened."
               confirmLabel={<><XCircle size={13} /> Close subscription</>}
-              onConfirm={close}
+              disabled={pending}
+              onConfirm={() => run("close")}
             >
               <XCircle size={14} /> Close
+            </ConfirmButton>
+          ) : null}
+          {canCancel ? (
+            <ConfirmButton
+              title={`Cancel ${detail.number}?`}
+              description="The subscription is closed and can't be reopened."
+              confirmLabel={<><XCircle size={13} /> Cancel subscription</>}
+              disabled={pending}
+              onConfirm={() => run("cancel")}
+            >
+              <XCircle size={14} /> Cancel
             </ConfirmButton>
           ) : null}
         </>
@@ -208,7 +239,7 @@ export function SubscriptionRecord({ detail }: { detail: SubscriptionDetail }) {
               </Fact>
               <Fact label="Plan">{plan.name}</Fact>
               <Fact label="Start">{formatDateLong(detail.startDate)}</Fact>
-              <Fact label="Expiry">{formatDateLong(detail.expiryDate)}</Fact>
+              <Fact label="Expiry">{detail.expiryDate ? formatDateLong(detail.expiryDate) : <span className="text-muted">—</span>}</Fact>
               <Fact label="Next billing">
                 {status === "active" && detail.nextBillingDate ? formatDateLong(detail.nextBillingDate) : <span className="text-muted">—</span>}
               </Fact>

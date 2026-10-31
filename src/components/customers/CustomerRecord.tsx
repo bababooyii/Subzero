@@ -12,23 +12,24 @@ import { StatTile } from "@/components/ui/StatTile";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { Timeline } from "@/components/ui/Timeline";
 import { formatDate, formatDateLong, formatMoney } from "@/lib/format";
-import type { CustomerDetail, InvoiceRow, PaymentRow, SubscriptionRow } from "@/lib/mock/selectors-subscriptions";
+import type { SubscriptionListRow } from "@/features/subscriptions/queries";
 import { btnPrimary, sectionTitle, surface } from "@/lib/ui";
 import { METHOD_LABEL } from "@/components/subscriptions/labels";
+import type { InvoiceRow } from "@/components/subscriptions/rows";
+import type { CustomerDetail, PaymentRow } from "./rows";
 
 const date = (iso: string) => <span className="whitespace-nowrap text-muted tabular-nums">{formatDate(iso)}</span>;
 
-const subColumns: TableColumn<SubscriptionRow>[] = [
+const subColumns: TableColumn<SubscriptionListRow>[] = [
   { accessorKey: "number", header: "Number", cell: ({ row }) => <span className="font-medium whitespace-nowrap text-text tabular-nums">{row.original.number}</span> },
-  { accessorKey: "plan", header: "Plan", cell: ({ row }) => <span className="whitespace-nowrap text-muted">{row.original.plan}</span> },
+  { accessorKey: "planName", header: "Plan", cell: ({ row }) => <span className="whitespace-nowrap text-muted">{row.original.planName}</span> },
   { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusDot status={row.original.status} /> },
   {
-    id: "nextBilling",
+    accessorKey: "nextInvoiceDate",
     header: "Next billing",
-    accessorFn: (r) => r.nextBillingDate ?? "",
-    cell: ({ row }) => (row.original.nextBillingDate ? date(row.original.nextBillingDate) : <span className="text-muted/50">—</span>),
+    cell: ({ row }) => (row.original.nextInvoiceDate ? date(row.original.nextInvoiceDate) : <span className="text-muted/50">—</span>),
   },
-  { accessorKey: "mrr", header: "MRR", cell: ({ row }) => formatMoney(row.original.mrr), meta: { align: "right" } },
+  { accessorKey: "recurringTotal", header: "MRR", cell: ({ row }) => formatMoney(row.original.recurringTotal), meta: { align: "right" } },
 ];
 
 const invoiceColumns: TableColumn<InvoiceRow>[] = [
@@ -90,9 +91,9 @@ export function CustomerRecord({ detail }: { detail: CustomerDetail }) {
             value={tab}
             onChange={(k) => setTab(k as Tab)}
             options={[
-              { key: "subscriptions", label: "Subscriptions", count: detail.subscriptions.length },
-              { key: "invoices", label: "Invoices", count: detail.invoices.length },
-              { key: "payments", label: "Payments", count: detail.payments.length },
+              { key: "subscriptions", label: "Subscriptions", count: detail.counts.subscriptions },
+              { key: "invoices", label: "Invoices", count: detail.counts.invoices },
+              { key: "payments", label: "Payments", count: detail.counts.payments },
             ]}
           />
 
@@ -132,17 +133,15 @@ export function CustomerRecord({ detail }: { detail: CustomerDetail }) {
           <div className={`${surface} shrink-0 p-4`}>
             <h2 className={`${sectionTitle} mb-1`}>Details</h2>
             <dl className="divide-y divide-white/[0.05]">
-              <Fact label="Contact">{detail.contactName}</Fact>
+              <Fact label="Company">{detail.company ?? <span className="text-muted">—</span>}</Fact>
               <Fact label="Email">
                 <a href={`mailto:${detail.email}`} className="hover:underline">
                   {detail.email}
                 </a>
               </Fact>
-              <Fact label="Phone">{detail.phone}</Fact>
-              <Fact label="City">{detail.city}</Fact>
-              <Fact label="GSTIN">
-                <span className="tabular-nums">{detail.gstin}</span>
-              </Fact>
+              <Fact label="Phone">{detail.phone ?? <span className="text-muted">—</span>}</Fact>
+              <Fact label="Address">{detail.address ?? <span className="text-muted">—</span>}</Fact>
+              <Fact label="GSTIN">{detail.gstin ? <span className="tabular-nums">{detail.gstin}</span> : <span className="text-muted">—</span>}</Fact>
               <Fact label="Customer since">{formatDateLong(detail.createdAt)}</Fact>
             </dl>
           </div>

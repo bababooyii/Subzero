@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { SubscriptionRecord } from "@/components/subscriptions/SubscriptionRecord";
-import { subscriptionDetail } from "@/lib/mock/selectors-subscriptions";
+import { isUuid, toSubscriptionDetail } from "@/components/subscriptions/rows";
+import { db } from "@/db/client";
+import { listPaymentTerms, listTaxes } from "@/features/catalog/queries";
+import { listInvoices } from "@/features/invoices/queries";
+import { getSubscription, quoteSubscription } from "@/features/subscriptions/queries";
+import { requestToday } from "@/lib/request-today";
 
 export default function Page(props: PageProps<"/subscriptions/[id]">) {
   return (
@@ -13,7 +18,17 @@ export default function Page(props: PageProps<"/subscriptions/[id]">) {
 
 async function Content({ params }: PageProps<"/subscriptions/[id]">) {
   const { id } = await params;
-  const detail = subscriptionDetail(id);
-  if (!detail) notFound();
+  if (!isUuid(id)) notFound();
+  const today = await requestToday();
+  const sub = await getSubscription(db, id);
+  if (!sub) notFound();
+  const [quote, invoices, terms, taxes] = await Promise.all([
+    quoteSubscription(db, id, today),
+    listInvoices(db, { subscriptionId: id, today, pageSize: 100 }),
+    listPaymentTerms(db),
+    listTaxes(db),
+  ]);
+  const termName = terms.find((t) => t.id === sub.paymentTermId)?.name ?? "—";
+  const detail = toSubscriptionDetail(sub, quote, invoices.rows, termName, taxes);
   return <SubscriptionRecord key={detail.id} detail={detail} />;
 }

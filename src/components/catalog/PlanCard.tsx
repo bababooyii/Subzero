@@ -3,13 +3,12 @@
 import { Check, Minus, Pencil, Sparkles } from "lucide-react";
 import { cn } from "@/helpers/classname-helper";
 import { formatDate, formatMoney, formatMoneyCompact } from "@/lib/format";
-import { PLAN_FLAGS, type PlanStats, intervalLabel, intervalUnit } from "@/lib/mock/selectors-catalog";
-import type { Plan } from "@/lib/mock/types";
 import { btnSecondary, raised, surface } from "@/lib/ui";
+import { PLAN_FLAGS, type PlanData, type PlanStats, intervalLabel, intervalUnit } from "./catalog-utils";
 import { HoldDelete } from "./HoldDelete";
 
 type Props = {
-  plan: Plan;
+  plan: PlanData;
   stats?: PlanStats;
   onEdit: () => void;
   onDelete: () => void;
@@ -18,7 +17,7 @@ type Props = {
 const EMPTY: PlanStats = { active: 0, mrr: 0, share: 0, monthly: [] };
 
 /** Monthly price for the "≈ per month" line on longer intervals. */
-const perMonth = (p: Plan) => (p.interval === "yearly" ? Math.round(p.price / 12) : null);
+const perMonth = (p: PlanData) => (p.interval === "yearly" ? Math.round(p.price / 12) : null);
 
 /**
  * A plan as a pricing card: price and rules at the top, the plan's traction (subscribers, MRR,
@@ -126,7 +125,7 @@ export function PlanCard({ plan, stats = EMPTY, onEdit, onDelete }: Props) {
       {/* Availability + actions */}
       <div className="mt-4 flex shrink-0 items-center justify-between gap-2">
         <span className="min-w-0 truncate text-[12px] text-muted tabular-nums">
-          {formatDate(plan.startDate)} – {plan.endDate ? formatDate(plan.endDate) : "no end"}
+          {plan.availableFrom ? formatDate(plan.availableFrom) : "Any time"} – {plan.availableTo ? formatDate(plan.availableTo) : "no end"}
         </span>
         <div className="flex shrink-0 gap-1.5">
           <button type="button" className={btnSecondary} onClick={onEdit} aria-label={`Edit ${plan.name}`}>

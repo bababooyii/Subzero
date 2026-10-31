@@ -1,5 +1,4 @@
-import { TODAY_ISO } from "@/lib/mock/clock";
-import type { PortalInvoice, PortalSub } from "@/lib/mock/selectors-portal";
+import type { PortalInvoice, PortalSub } from "./types";
 
 /** Invoices with money still owed, overdue first, then by due date. */
 export function unpaidInvoices(invoices: PortalInvoice[]): PortalInvoice[] {
@@ -18,8 +17,8 @@ export function upcomingCharges(subs: PortalSub[]): (PortalSub & { nextBillingDa
 }
 
 /** Money paid on invoices issued this year (cancelled ones excluded). */
-export function paidThisYear(invoices: PortalInvoice[]): number {
-  const year = TODAY_ISO.slice(0, 4);
+export function paidThisYear(invoices: PortalInvoice[], today: string): number {
+  const year = today.slice(0, 4);
   return invoices
     .filter((i) => i.status !== "cancelled" && i.issueDate.startsWith(year))
     .reduce((n, i) => n + (i.total - i.balance), 0);
@@ -46,14 +45,14 @@ function nth(base: Date, interval: PortalSub["interval"], k: number): Date {
 }
 
 /** Every charge the active subscriptions will make in the next `days` days, soonest first (capped at 60). */
-export function projectedCharges(subs: PortalSub[], days = 90): ProjectedCharge[] {
-  const end = toIso(new Date(toDate(TODAY_ISO).getTime() + days * DAY));
+export function projectedCharges(subs: PortalSub[], today: string, days = 90): ProjectedCharge[] {
+  const end = toIso(new Date(toDate(today).getTime() + days * DAY));
   const out: ProjectedCharge[] = [];
   for (const sub of subs) {
     if (sub.status !== "active" || !sub.nextBillingDate) continue;
     const base = toDate(sub.nextBillingDate);
     for (let k = 0; k < 60; k++) {
-      const date = toIso(nth(base, sub.interval, k));
+      const date = toIso(nth(base, sub.interval, k * sub.intervalCount));
       if (date > end) break;
       out.push({ key: `${sub.id}-${date}`, sub, date, amount: sub.amount });
     }

@@ -1,23 +1,30 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/Menu";
-import { unpaidInvoices } from "@/components/portal/derive";
-import { usePortal } from "@/components/portal/PortalProvider";
+import { authClient } from "@/components/auth/auth-client";
 import { CommandPalette, type PaletteGroup } from "./CommandPalette";
-import { BackIcon, InvoicesIcon, PersonIcon, SignOutIcon, SubscriptionsIcon } from "./icons";
+import { InvoicesIcon, PersonIcon, SignOutIcon, SubscriptionsIcon } from "./icons";
 import { PORTAL_ACCOUNT_NAV, PORTAL_NAV } from "./nav";
 import { ShellFrame } from "./ShellFrame";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
+type Props = {
+  customerName: string;
+  /** Invoices with money still owed (sidebar chip). */
+  unpaid: number;
+  subs: { id: string; number: string; planName: string }[];
+  invoices: { id: string; number: string; subscriptionId: string; subscriptionNumber: string }[];
+  children: ReactNode;
+};
+
 /** Customer portal shell: the same frame as the admin app, with the portal's own sidebar, search and account menu. */
-export function PortalShell({ customerName, children }: { customerName: string; children: ReactNode }) {
+export function PortalShell({ customerName, unpaid, subs, invoices, children }: Props) {
   const pathname = usePathname();
-  const { subs, invoices } = usePortal();
-  const unpaid = unpaidInvoices(invoices).length;
+  const router = useRouter();
   const onAccount = pathname.startsWith(PORTAL_ACCOUNT_NAV.href);
 
   const groups: PaletteGroup[] = [
@@ -33,6 +40,12 @@ export function PortalShell({ customerName, children }: { customerName: string; 
     },
   ];
 
+  async function signOut() {
+    await authClient.signOut();
+    router.push("/login");
+    router.refresh();
+  }
+
   return (
     <ShellFrame
       sidebar={<Sidebar aria-label="Portal" homeHref="/portal" counts={{ unpaid }} main={PORTAL_NAV} bottom={PORTAL_ACCOUNT_NAV} />}
@@ -45,9 +58,8 @@ export function PortalShell({ customerName, children }: { customerName: string; 
           <MenuItem href="/portal/account" icon={<PersonIcon />} selected={onAccount} trailing={onAccount ? <Check size={14} strokeWidth={3} /> : null}>
             Account
           </MenuItem>
-          <MenuItem href="/dashboard" icon={<BackIcon />}>Back to billing</MenuItem>
           <MenuSeparator />
-          <MenuItem href="/login" icon={<SignOutIcon />}>Sign out</MenuItem>
+          <MenuItem icon={<SignOutIcon />} onSelect={signOut}>Sign out</MenuItem>
         </TopBar>
       }
     >

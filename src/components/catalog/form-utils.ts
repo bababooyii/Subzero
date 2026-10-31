@@ -1,4 +1,4 @@
-/** Small helpers for the catalog forms. Money inputs hold rupees as text; the mock data holds paise. */
+/** Small helpers for the catalog forms. Money inputs hold rupees as text; the backend holds paise. */
 
 /** "560" → 56000. Blank or invalid → 0. */
 export const toPaise = (s: string): number => {
@@ -14,6 +14,3 @@ export const isAmount = (s: string): boolean => s.trim() !== "" && Number.isFini
 
 /** Whole number at or above `min`. */
 export const isWhole = (s: string, min = 0): boolean => s.trim() !== "" && Number.isInteger(Number(s)) && Number(s) >= min;
-
-/** Id for a record created in the browser. Call from event handlers, not during render. */
-export const localId = (prefix: string): string => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;

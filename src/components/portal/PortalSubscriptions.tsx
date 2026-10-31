@@ -8,9 +8,9 @@ import { PageGrid } from "@/components/ui/PageGrid";
 import { SavedViews } from "@/components/ui/SavedViews";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { PortalSub } from "@/lib/mock/selectors-portal";
-import { INTERVAL_NOUN } from "./labels";
+import { intervalNoun } from "./labels";
 import { usePortal } from "./PortalProvider";
+import type { PortalSub } from "./types";
 import { SUBSCRIPTION_VIEWS, type SubscriptionView } from "./views";
 
 const LABEL: Record<SubscriptionView, string> = { all: "All", active: "Active", paused: "Paused", closed: "Closed" };
@@ -43,7 +43,7 @@ const columns: TableColumn<PortalSub>[] = [
     cell: ({ row }) => (
       <span className="whitespace-nowrap">
         {formatMoney(row.original.amount)}
-        <span className="text-muted"> / {INTERVAL_NOUN[row.original.interval]}</span>
+        <span className="text-muted"> / {intervalNoun(row.original.interval, row.original.intervalCount)}</span>
       </span>
     ),
   },

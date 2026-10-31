@@ -17,8 +17,8 @@ import {
   getSortedRowModel,
   useLegacyTable,
 } from "@tanstack/react-table/legacy";
-import { useRouter } from "next/navigation";
-import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/helpers/classname-helper";
 import { formatNumber } from "@/lib/format";
 import { TABLE_ROW_H, btnSquare, raised, tableWrap, td, th, tr } from "@/lib/ui";
@@ -39,6 +39,9 @@ declare module "@tanstack/react-table" {
 export type TableColumn<T extends RowData> = LegacyColumnDef<T, any>;
 
 type Empty = { icon: ReactNode; title: string; subtitle?: string };
+
+/** Server paging: `data` is one server page; page, size and sort live in the URL (`?page&size&sort&dir`). */
+export type TablePagingProp = { total: number; page: number; pageSize: number };
 
 type Props<T extends RowData> = {
   data: T[];
@@ -65,6 +68,12 @@ type Props<T extends RowData> = {
    */
   autoFit?: boolean;
   initialSorting?: SortingState;
+  /**
+   * Server-paged mode. `data` is rendered as-is (one page); the footer shows "21–40 of 4,812"; prev/next, auto-fit
+   * and header sorting write `?page`, `?size`, `?sort` and `?dir` with `router.replace`. Read them with `readPaging()`.
+   * Sorting is by column id (`sort=<columnId>`). Without `paging` the table pages and sorts client-side.
+   */
+  paging?: TablePagingProp;
   className?: string;
   "aria-label"?: string;
 };
@@ -81,7 +90,22 @@ const stagger = (i: number) => `${Math.min(i, 10) * 15}ms`;
  * Column definitions contain functions, so build the `columns` array in a client component
  * (a file with "use client"), not in a server component.
  */
-export function DataTable<T extends RowData>({
+export function DataTable<T extends RowData>(props: Props<T>) {
+  // Only paged tables read the URL, so client-side tables never need a Suspense boundary for `useSearchParams`.
+  return props.paging ? <PagedTable {...props} /> : <DataTableInner {...props} url={null} />;
+}
+
+type UrlState = { pathname: string; params: URLSearchParams };
+
+function PagedTable<T extends RowData>(props: Props<T>) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const url = useMemo<UrlState>(() => ({ pathname, params: new URLSearchParams(searchParams.toString()) }), [pathname, searchParams]);
+  return <DataTableInner {...props} url={url} />;
+}
+
+function DataTableInner<T extends RowData>({
+  url,
   data,
   columns,
   getRowHref,
@@ -93,11 +117,37 @@ export function DataTable<T extends RowData>({
   pageSize,
   autoFit = true,
   initialSorting = [],
+  paging,
   className,
   ...rest
-}: Props<T>) {
+}: Props<T> & { url: UrlState | null }) {
   const router = useRouter();
-  const [sorting, setSorting] = useState<SortingState>(initialSorting);
+  const [localSorting, setLocalSorting] = useState<SortingState>(initialSorting);
+  const sortParam = url?.params.get("sort") ?? null;
+  const dirParam = url?.params.get("dir") ?? null;
+  const sorting = useMemo<SortingState>(
+    () => (paging ? (sortParam ? [{ id: sortParam, desc: dirParam === "desc" }] : []) : localSorting),
+    [paging, sortParam, dirParam, localSorting],
+  );
+
+  /** Rewrite the URL, keeping the other params. */
+  const replaceParams = useCallback(
+    (patch: Record<string, string | null>) => {
+      if (!url) return;
+      const next = new URLSearchParams(url.params);
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null) next.delete(k);
+        else next.set(k, v);
+      }
+      const qs = next.toString();
+      router.replace(qs ? `${url.pathname}?${qs}` : url.pathname, { scroll: false });
+    },
+    [router, url],
+  );
+  const replaceRef = useRef(replaceParams);
+  useEffect(() => {
+    replaceRef.current = replaceParams;
+  }, [replaceParams]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: Math.max(MIN_ROWS, pageSize ?? (autoFit ? 10 : 50)) });
   /** Bumped on sort and page changes so the rows fade in again. */
@@ -140,11 +190,20 @@ export function DataTable<T extends RowData>({
     columns: allColumns,
     getRowId,
     state: { sorting, rowSelection, pagination },
+    manualSorting: !!paging,
+    manualPagination: !!paging,
     onSortingChange: (u) => {
-      setSorting(u);
+      const next = typeof u === "function" ? u(sorting) : u;
+      if (paging) {
+        const s = next[0];
+        replaceParams({ sort: s ? s.id : null, dir: s ? (s.desc ? "desc" : "asc") : null, page: null });
+      } else {
+        setLocalSorting(next);
+      }
       setTick((t) => t + 1);
     },
     onPaginationChange: (u) => {
+      if (paging) return;
       setPagination(u);
       setTick((t) => t + 1);
     },
@@ -157,6 +216,8 @@ export function DataTable<T extends RowData>({
 
   // Auto-fit: rows per page = space the parent slot offers (minus header row and footer) / measured row height.
   // The table itself only grows to its rows, so a short list doesn't leave an empty card.
+  const pagingSize = paging?.pageSize;
+  const fitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useLayoutEffect(() => {
     const root = rootRef.current;
     const slot = root?.parentElement;
@@ -167,20 +228,38 @@ export function DataTable<T extends RowData>({
       const row = el.querySelector("tbody tr")?.getBoundingClientRect().height || TABLE_ROW_H;
       const foot = root.lastElementChild instanceof HTMLElement && root.lastElementChild !== el ? root.lastElementChild.offsetHeight : 0;
       const fit = Math.max(MIN_ROWS, Math.floor((slot.clientHeight - foot - head - 2) / row));
+      if (pagingSize !== undefined) {
+        // Server-paged: ask the server for as many rows as fit (debounced), back on page 1.
+        clearTimeout(fitTimer.current);
+        if (fit !== pagingSize) fitTimer.current = setTimeout(() => replaceRef.current({ size: String(fit), page: "1" }), 150);
+        return;
+      }
       // Keep the first visible row on screen when the page size changes.
       setPagination((p) => (p.pageSize === fit ? p : { pageSize: fit, pageIndex: Math.floor((p.pageIndex * p.pageSize) / fit) }));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(slot);
-    return () => ro.disconnect();
-  }, [autoFit]);
+    return () => {
+      ro.disconnect();
+      clearTimeout(fitTimer.current);
+    };
+  }, [autoFit, pagingSize]);
 
   const selectedRows = table.getSelectedRowModel().rows.map((r) => r.original);
-  const { pageIndex, pageSize: size } = table.getState().pagination;
-  const total = data.length;
+  const { pageIndex: localIndex, pageSize: localSize } = table.getState().pagination;
+  const size = paging ? paging.pageSize : localSize;
+  const pageIndex = paging ? Math.max(0, paging.page - 1) : localIndex;
+  const total = paging ? paging.total : data.length;
   const from = total === 0 ? 0 : pageIndex * size + 1;
-  const to = Math.min(total, (pageIndex + 1) * size);
+  const to = paging ? Math.min(total, pageIndex * size + data.length) : Math.min(total, (pageIndex + 1) * size);
+  const canPrev = paging ? pageIndex > 0 : table.getCanPreviousPage();
+  const canNext = paging ? pageIndex * size + data.length < total : table.getCanNextPage();
+  const goPage = (delta: 1 | -1) => {
+    if (paging) replaceParams({ page: String(Math.max(1, paging.page + delta)) });
+    else if (delta > 0) table.nextPage();
+    else table.previousPage();
+  };
 
   const isEmpty = total === 0 && !!empty;
 
@@ -235,7 +314,7 @@ export function DataTable<T extends RowData>({
                 </tr>
               ))}
             </thead>
-            <tbody key={tick}>
+            <tbody key={`${tick}-${paging ? `${paging.page}-${sortParam}-${dirParam}` : ""}`}>
               {table.getRowModel().rows.map((row, i) => {
                 const href = getRowHref?.(row.original);
                 return (
@@ -298,10 +377,10 @@ export function DataTable<T extends RowData>({
           )}
           {total > size ? (
             <div className="flex gap-1">
-              <button type="button" className={cn(btnSquare, "size-7")} aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>
+              <button type="button" className={cn(btnSquare, "size-7")} aria-label="Previous page" disabled={!canPrev} onClick={() => goPage(-1)}>
                 <ChevronLeft size={14} strokeWidth={2.5} />
               </button>
-              <button type="button" className={cn(btnSquare, "size-7")} aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>
+              <button type="button" className={cn(btnSquare, "size-7")} aria-label="Next page" disabled={!canNext} onClick={() => goPage(1)}>
                 <ChevronRight size={14} strokeWidth={2.5} />
               </button>
             </div>

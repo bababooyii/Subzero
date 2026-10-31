@@ -1,11 +1,10 @@
-import { discountUsagePct } from "@/lib/mock/selectors-catalog";
-import type { Discount } from "@/lib/mock/types";
+import { discountUsagePct } from "./catalog-utils";
 
-/** timesUsed / usageLimit as a thin grey bar with a count. Unlimited discounts show the count only. */
-export function UsageBar({ discount }: { discount: Pick<Discount, "timesUsed" | "usageLimit"> }) {
+/** usedCount / usageLimit as a thin grey bar with a count. Unlimited discounts show the count only. */
+export function UsageBar({ discount }: { discount: { usedCount: number; usageLimit: number | null } }) {
   const pct = discountUsagePct(discount);
   if (pct === null) {
-    return <span className="text-muted tabular-nums">{discount.timesUsed} used · no limit</span>;
+    return <span className="text-muted tabular-nums">{discount.usedCount} used · no limit</span>;
   }
   return (
     <span className="flex items-center gap-2.5">
@@ -20,7 +19,7 @@ export function UsageBar({ discount }: { discount: Pick<Discount, "timesUsed" | 
         <span className="block h-full rounded-full bg-text/70" style={{ width: `${pct}%` }} />
       </span>
       <span className="text-muted tabular-nums">
-        {discount.timesUsed}/{discount.usageLimit}
+        {discount.usedCount}/{discount.usageLimit}
       </span>
     </span>
   );

@@ -1,4 +1,4 @@
-import { TODAY } from "@/lib/mock/clock";
+import { todayIST } from "@/lib/dates";
 
 const IST = "Asia/Kolkata";
 
@@ -31,10 +31,10 @@ const dayKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: IST }).
 const md = new Intl.DateTimeFormat("en-US", { timeZone: IST, month: "short", day: "numeric" });
 const wmd = new Intl.DateTimeFormat("en-US", { timeZone: IST, weekday: "short", month: "short", day: "numeric" });
 
-/** "Today, Oct 31" for the mock today, otherwise "Sat, Oct 18". */
+/** "Today, Oct 31" for today (IST), otherwise "Sat, Oct 18". */
 export function formatDate(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
-  if (dayKey(date) === dayKey(TODAY)) return `Today, ${md.format(date)}`;
+  if (dayKey(date) === todayIST()) return `Today, ${md.format(date)}`;
   return wmd.format(date);
 }
 

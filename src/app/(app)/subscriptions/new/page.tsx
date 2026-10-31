@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { NewSubscriptionForm } from "@/components/subscriptions/NewSubscriptionForm";
-import { newSubscriptionData } from "@/lib/mock/selectors-subscriptions";
+import { loadNewSubscriptionData } from "@/components/subscriptions/form-data";
+import { db } from "@/db/client";
+import { requestToday } from "@/lib/request-today";
 
 export const metadata = { title: "New subscription · Brightloop" };
 
@@ -17,5 +19,6 @@ async function Content({ searchParams }: PageProps<"/subscriptions/new">) {
   const sp = await searchParams;
   const customer = typeof sp.customer === "string" ? sp.customer : undefined;
   const template = typeof sp.template === "string" ? sp.template : undefined;
-  return <NewSubscriptionForm data={newSubscriptionData()} initialCustomerId={customer} initialTemplateId={template} />;
+  const data = await loadNewSubscriptionData(db, (await requestToday()));
+  return <NewSubscriptionForm data={data} initialCustomerId={customer} initialTemplateId={template} />;
 }

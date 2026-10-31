@@ -1,6 +1,8 @@
-import { discountAmount } from "../../lib/mock/pricing";
-import type { DraftLine } from "@/lib/mock/selectors-billing";
-import type { PaymentMethod } from "@/lib/mock/types";
+import type { Interval } from "@/lib/dates";
+import type { InvoiceDisplayStatus } from "@/features/invoices/schemas";
+
+export type PaymentMethod = "upi" | "card" | "bank_transfer" | "cash";
+export const PAYMENT_METHODS: PaymentMethod[] = ["upi", "card", "bank_transfer", "cash"];
 
 export const METHOD_LABEL: Record<PaymentMethod, string> = {
   upi: "UPI",
@@ -11,25 +13,56 @@ export const METHOD_LABEL: Record<PaymentMethod, string> = {
 
 export const INTERVAL_LABEL = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" } as const;
 
-export const lineGross = (l: Pick<DraftLine, "qty" | "unitPrice">) => Math.round(l.qty * l.unitPrice);
+export type DraftLine = {
+  id: string;
+  description: string;
+  qty: number;
+  /** paise */
+  unitPrice: number;
+  /** paise taken off this line (already applied by the backend) */
+  discount: number;
+  discountName: string | null;
+  /** percent, e.g. 18 or 12.5 */
+  taxRate: number;
+};
 
-export function lineDiscount(l: DraftLine): number {
-  return l.discountType ? discountAmount(lineGross(l), { type: l.discountType, value: l.discountValue }) : 0;
-}
+export type DraftContext = {
+  planName: string;
+  interval: Interval;
+  startDate: string;
+  invoicesIssued: number;
+  lastPayment: { date: string; amount: number; method: PaymentMethod } | null;
+  openBalance: number;
+  overdueBalance: number;
+  overdueCount: number;
+  /** The customer's latest invoices, newest first (at most 3). */
+  recentInvoices: { id: string; number: string; issueDate: string; total: number; status: InvoiceDisplayStatus }[];
+};
 
-export type DraftTotals = { subtotal: number; discountTotal: number; taxTotal: number; total: number };
+/** One billing period of one due subscription, priced by the backend preview. */
+export type DraftInvoice = {
+  /** `<subscriptionId>:<periodStart>`: unique per card. */
+  id: string;
+  /** Null until the invoice is created: numbers are only allocated on insert. */
+  invoiceNumber: string | null;
+  subscriptionId: string;
+  subscriptionNumber: string;
+  customerId: string;
+  customerName: string;
+  /** Company or address line under the customer name. */
+  location: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  paymentTerms: string;
+  lines: DraftLine[];
+  subtotal: number;
+  discountTotal: number;
+  taxTotal: number;
+  total: number;
+  context: DraftContext;
+};
 
-/** Prices draft lines in integer paise. Tax is on the discounted amount, rounded per line (same rule as priceLines). */
-export function priceDraft(lines: DraftLine[]): DraftTotals {
-  let subtotal = 0;
-  let discountTotal = 0;
-  let taxTotal = 0;
-  for (const l of lines) {
-    const gross = lineGross(l);
-    const off = lineDiscount(l);
-    subtotal += gross;
-    discountTotal += off;
-    taxTotal += Math.round(((gross - off) * l.taxRate) / 100);
-  }
-  return { subtotal, discountTotal, taxTotal, total: subtotal - discountTotal + taxTotal };
-}
+export const draftLabel = (d: Pick<DraftInvoice, "invoiceNumber">) => d.invoiceNumber ?? "New invoice";
+
+export const lineGross = (l: Pick<DraftLine, "qty" | "unitPrice">) => l.qty * l.unitPrice;

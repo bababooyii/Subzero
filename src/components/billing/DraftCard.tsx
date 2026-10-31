@@ -1,14 +1,13 @@
 "use client";
 
-import { Check, Pencil, X } from "lucide-react";
+import { ArrowUpRight, Check, X } from "lucide-react";
 import Link from "next/link";
 import type { Ref } from "react";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { cn } from "@/helpers/classname-helper";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { DraftInvoice } from "@/lib/mock/selectors-billing";
 import { btnPrimary, btnSecondary, btnSquare, heroBody, heroFrame } from "@/lib/ui";
-import { lineDiscount, lineGross, priceDraft } from "./draft";
+import { type DraftInvoice, draftLabel, lineGross } from "./draft";
 import { periodLabel } from "./period";
 
 type Props = {
@@ -20,12 +19,13 @@ type Props = {
   approveRef?: Ref<HTMLButtonElement>;
   onApprove: () => void;
   onSkip: () => void;
-  onEdit: () => void;
 };
 
-/** The top card of the billing-run deck: a draft invoice preview with Edit / skip / Approve (design-system "Hero card"). */
-export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove, onSkip, onEdit }: Props) {
-  const t = priceDraft(draft.lines);
+/**
+ * The top card of the billing-run deck: a draft invoice preview with Open subscription / skip / Approve (design-system "Hero card").
+ * Prices come from the backend preview, so there is no per-card editing: change the subscription instead.
+ */
+export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove, onSkip }: Props) {
   const exit = leaving
     ? { transform: `translateX(${leaving === "right" ? 115 : -115}%) rotate(${leaving === "right" ? 6 : -6}deg)`, opacity: 0 }
     : undefined;
@@ -41,7 +41,7 @@ export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove,
           <article
             className={cn(heroFrame, "flex min-h-0 flex-1 flex-col transition-[transform,opacity] duration-300 ease-out")}
             style={exit}
-            aria-label={`Draft invoice ${draft.invoiceNumber} for ${draft.customerName}`}
+            aria-label={`Draft invoice ${draftLabel(draft)} for ${draft.customerName}`}
           >
             <div className={cn(heroBody, "flex min-h-0 flex-1 flex-col p-7")}>
               <header className="flex shrink-0 items-start justify-between gap-4">
@@ -57,7 +57,7 @@ export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove,
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-[15px] font-medium text-text tabular-nums">{draft.invoiceNumber}</p>
+                  <p className="text-[15px] font-medium text-text tabular-nums">{draftLabel(draft)}</p>
                   <p className="mt-1 inline-flex items-center gap-1.5 text-[12px] text-muted">
                     <span aria-hidden="true" className="size-1.5 rounded-full bg-[#6b6a66]" />
                     Draft
@@ -69,7 +69,7 @@ export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove,
                 <div className="min-w-0">
                   <dt className="text-[12px] text-muted">Bill to</dt>
                   <dd className="mt-1 truncate text-text">{draft.customerName}</dd>
-                  <dd className="truncate text-[12px] text-muted">{draft.city}</dd>
+                  <dd className="truncate text-[12px] text-muted">{draft.location}</dd>
                 </div>
                 <div className="min-w-0">
                   <dt className="text-[12px] text-muted">Billing period</dt>
@@ -92,7 +92,7 @@ export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove,
               <ScrollPanel className="min-h-0 flex-1 border-t border-white/[0.05]">
                 <ul className="divide-y divide-white/[0.05]">
                   {draft.lines.map((l) => {
-                    const off = lineDiscount(l);
+                    const off = l.discount;
                     return (
                       <li key={l.id} className="grid grid-cols-[minmax(0,1fr)_56px_110px_56px_120px] items-start gap-3 py-3 text-[14px] tabular-nums">
                         <div className="min-w-0">
@@ -112,29 +112,29 @@ export function DraftCard({ draft, behind, leaving, busy, approveRef, onApprove,
               <dl className="mt-4 ml-auto w-full max-w-72 shrink-0 space-y-2 text-[13px] text-muted tabular-nums">
                 <div className="flex justify-between">
                   <dt>Subtotal</dt>
-                  <dd>{formatMoney(t.subtotal)}</dd>
+                  <dd>{formatMoney(draft.subtotal)}</dd>
                 </div>
-                {t.discountTotal > 0 ? (
+                {draft.discountTotal > 0 ? (
                   <div className="flex justify-between">
                     <dt>Discount</dt>
-                    <dd>-{formatMoney(t.discountTotal)}</dd>
+                    <dd>-{formatMoney(draft.discountTotal)}</dd>
                   </div>
                 ) : null}
                 <div className="flex justify-between">
                   <dt>Tax</dt>
-                  <dd>{formatMoney(t.taxTotal)}</dd>
+                  <dd>{formatMoney(draft.taxTotal)}</dd>
                 </div>
                 <div className="flex items-baseline justify-between border-t border-white/[0.06] pt-3 text-text">
                   <dt className="font-medium">Total</dt>
-                  <dd className="text-[22px] font-medium tracking-tight">{formatMoney(t.total)}</dd>
+                  <dd className="text-[22px] font-medium tracking-tight">{formatMoney(draft.total)}</dd>
                 </div>
               </dl>
             </div>
 
             <footer className="flex shrink-0 items-center justify-between gap-1.5 px-4 py-3">
-              <button type="button" className={btnSecondary} onClick={onEdit} disabled={busy}>
-                <Pencil size={11} fill="currentColor" strokeWidth={1.5} className="text-muted" /> Edit
-              </button>
+              <Link href={`/subscriptions/${draft.subscriptionId}`} className={btnSecondary}>
+                <ArrowUpRight size={13} strokeWidth={2.25} className="text-muted" /> Open subscription
+              </Link>
               <div className="flex gap-1.5">
                 <button
                   type="button"

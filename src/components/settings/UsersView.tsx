@@ -1,22 +1,20 @@
 "use client";
 
 import { Plus, ShieldCheck, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useRole } from "@/components/shell/role";
-import { HoldDelete } from "@/components/catalog/HoldDelete";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/helpers/classname-helper";
-import type { User } from "@/lib/mock/types";
-import { btnPrimary, hint, surface } from "@/lib/ui";
+import { btnPrimary, surface } from "@/lib/ui";
 import { AddStaffDialog } from "./AddStaffDialog";
+import type { TeamUser } from "./users-source";
 
-const ROLE_LABEL: Record<User["role"], string> = {
+const ROLE_LABEL: Record<TeamUser["role"], string> = {
   admin: "Admin",
   staff: "Staff",
-  customer: "Customer",
 };
 
 const initials = (name: string) =>
@@ -27,25 +25,18 @@ const initials = (name: string) =>
     .map((w) => w[0]!.toUpperCase())
     .join("");
 
-/** Team list with roles. Only admins see Add staff and remove. Changes are local state only. */
-export function UsersView({ initial }: { initial: User[] }) {
-  const { role } = useRole();
-  const isAdmin = role === "admin";
-  const [users, setUsers] = useState(initial);
+/** Team list with roles. The Settings page is admin-only, so everything here is for admins. */
+export function UsersView({ initial }: { initial: TeamUser[] }) {
+  const router = useRouter();
   const [adding, setAdding] = useState(false);
+  const users = initial;
 
   const admins = users.filter((u) => u.role === "admin").length;
 
-  const add = (user: User) => {
-    setUsers((us) => [...us, user]);
-    toast.undo(`Added ${user.name} as ${ROLE_LABEL[user.role].toLowerCase()}`, () =>
-      setUsers((us) => us.filter((u) => u.id !== user.id)),
-    );
-  };
-
-  const remove = (user: User) => {
-    setUsers((us) => us.filter((u) => u.id !== user.id));
-    toast(`Removed ${user.name}`);
+  // No inverse action exists for creating a user, so a plain toast (no Undo).
+  const added = (name: string) => {
+    toast(`Added ${name} as staff`);
+    router.refresh();
   };
 
   return (
@@ -58,17 +49,14 @@ export function UsersView({ initial }: { initial: User[] }) {
             title="Users & staff"
             subtitle={`${users.length} member${users.length === 1 ? "" : "s"} · ${admins} admin${admins === 1 ? "" : "s"}`}
           />
-          {isAdmin ? (
-            <button type="button" className={btnPrimary} onClick={() => setAdding(true)}>
-              <Plus size={14} strokeWidth={2.5} /> Add staff
-            </button>
-          ) : null}
+          <button type="button" className={btnPrimary} onClick={() => setAdding(true)}>
+            <Plus size={14} strokeWidth={2.5} /> Add staff
+          </button>
         </>
       }
     >
       <div className="flex h-full min-h-0 flex-col gap-3">
         <h2 className="shrink-0 text-[13px] font-medium text-text">Team</h2>
-        {isAdmin ? null : <p className={cn(hint, "shrink-0")}>Only admins can add or remove staff.</p>}
         <div className={cn(surface, "flex min-h-0 flex-col overflow-hidden")}>
           <ScrollPanel>
             <ul className="divide-y divide-white/[0.05]" aria-label="Team">
@@ -93,23 +81,14 @@ export function UsersView({ initial }: { initial: User[] }) {
                     {u.role === "admin" ? <ShieldCheck size={12} aria-hidden="true" /> : null}
                     {ROLE_LABEL[u.role]}
                   </span>
-                  {isAdmin && u.role !== "admin" ? (
-                    <HoldDelete label={u.name} onConfirm={() => remove(u)} />
-                  ) : (
-                    <span className="size-8 shrink-0" aria-hidden="true" />
-                  )}
+                  {/* TODO(backend): removing a staff member has no action yet, so no bin. */}
                 </li>
               ))}
             </ul>
           </ScrollPanel>
         </div>
-        {isAdmin ? (
-          <p className={cn(hint, "shrink-0")}>
-            Use the bin to remove a staff member. Admins cannot be removed here.
-          </p>
-        ) : null}
       </div>
-      {isAdmin ? <AddStaffDialog open={adding} onOpenChange={setAdding} existing={users} onAdd={add} /> : null}
+      <AddStaffDialog open={adding} onOpenChange={setAdding} existing={users} onAdded={added} />
     </PageGrid>
   );
 }

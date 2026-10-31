@@ -1,5 +1,5 @@
 import { StatusDot } from "@/components/ui/StatusDot";
-import type { PortalInvoice } from "@/lib/mock/selectors-portal";
+import type { PortalInvoice } from "./types";
 
 /** Status dot for a customer's invoice. A confirmed invoice with money owed reads "Open" to the customer. */
 export function InvoiceStatus({ status }: { status: PortalInvoice["status"] }) {

@@ -2,12 +2,16 @@
 
 import { MailCheck } from "lucide-react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { Field, Input } from "@/components/ui/Field";
 import { AuthCard } from "@/components/shell/AuthCard";
+import { toast } from "@/components/ui/toast";
 import { btnPrimary, btnSecondary, iconTile } from "@/lib/ui";
+import { authClient } from "./auth-client";
+import { PasswordRules, passwordOk } from "./PasswordRules";
 import { SubmitButton } from "./SubmitButton";
-import { useFakeSubmit } from "./useFakeSubmit";
+import { usePending } from "./usePending";
 
 const back = (
   <Link href="/login" className="text-text hover:underline">
@@ -15,8 +19,62 @@ const back = (
   </Link>
 );
 
+/** Step 2: the emailed link lands on /reset?token=...; choose a new password. */
+function NewPasswordForm({ token }: { token: string }) {
+  const router = useRouter();
+  const { pending, run } = usePending();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!passwordOk(password)) return;
+    setError("");
+    void run(async () => {
+      const { error: err } = await authClient.resetPassword({ newPassword: password, token });
+      if (err) {
+        setError(err.message || "This reset link is invalid or has expired.");
+        return;
+      }
+      toast("Password updated. Sign in with your new password.");
+      router.push("/login");
+    });
+  }
+
+  return (
+    <AuthCard title="Choose a new password" subtitle="Pick something you have not used before." footer={back}>
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <Field label="New password" htmlFor="new-password">
+          <Input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            aria-describedby="password-rules"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <PasswordRules password={password} />
+        </Field>
+        {error ? (
+          <p role="alert" className="text-[12px] text-danger">
+            {error}
+          </p>
+        ) : null}
+        <SubmitButton pending={pending} pendingLabel="Saving…" disabled={!passwordOk(password)}>
+          Update password
+        </SubmitButton>
+      </form>
+    </AuthCard>
+  );
+}
+
 export function ResetFlow() {
-  const { pending, run } = useFakeSubmit();
+  const token = useSearchParams().get("token");
+  return token ? <NewPasswordForm token={token} /> : <RequestForm />;
+}
+
+function RequestForm() {
+  const { pending, run } = usePending();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -28,7 +86,14 @@ export function ResetFlow() {
       return;
     }
     setError("");
-    run(() => setSent(true));
+    void run(async () => {
+      const { error: err } = await authClient.requestPasswordReset({ email: email.trim(), redirectTo: "/reset" });
+      if (err) {
+        setError(err.message || "Could not send the reset link. Try again.");
+        return;
+      }
+      setSent(true);
+    });
   }
 
   if (sent) {

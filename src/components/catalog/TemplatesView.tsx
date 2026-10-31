@@ -1,7 +1,7 @@
 "use client";
 
 import { FileText, Pencil, Plus, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
@@ -10,28 +10,45 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Field, Input } from "@/components/ui/Field";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { toast } from "@/components/ui/toast";
+import { createTemplateAction, deleteTemplateAction, updateTemplateAction } from "@/features/catalog/actions";
 import { formatMoney } from "@/lib/format";
-import { intervalUnit } from "@/lib/mock/selectors-catalog";
-import type { Plan, Product, QuotationTemplate } from "@/lib/mock/types";
 import { btnPrimary, btnSecondary, btnSquare } from "@/lib/ui";
-import { isWhole, localId } from "./form-utils";
+import { type Interval, intervalUnit } from "./catalog-utils";
+import { type FieldErrors, errorHint } from "./field-errors";
+import { isWhole } from "./form-utils";
 import { HoldDelete } from "./HoldDelete";
 
-type LineDraft = { productId: string; qty: string };
+export type TemplateData = {
+  id: string;
+  name: string;
+  validityDays: number;
+  planId: string | null;
+  planName: string | null;
+  paymentTermId: string | null;
+  notes: string | null;
+  lines: { productId: string; variantId: string | null; quantity: number; productName: string }[];
+};
+export type TemplatePlan = { id: string; name: string; price: number; interval: Interval };
+export type TemplateProduct = { id: string; name: string };
+export type TemplatePaymentTerm = { id: string; name: string; dueDays: number };
+
+type LineDraft = { productId: string; variantId: string | null; qty: string };
 
 function TemplateForm({
   initial,
   products,
   plans,
-  onSave,
+  paymentTerms,
   onOpenChange,
 }: {
-  initial: QuotationTemplate | null;
-  products: Product[];
-  plans: Plan[];
-  onSave: (t: QuotationTemplate) => void;
+  initial: TemplateData | null;
+  products: TemplateProduct[];
+  plans: TemplatePlan[];
+  paymentTerms: TemplatePaymentTerm[];
   onOpenChange: (open: boolean) => void;
 }) {
+  const [pending, startTransition] = useTransition();
+  const [errors, setErrors] = useState<FieldErrors>();
   const [name, setName] = useState(initial?.name ?? "");
   const [validity, setValidity] = useState(String(initial?.validityDays ?? 30));
   const [planId, setPlanId] = useState(initial?.planId ?? plans[0]?.id ?? "");
@@ -39,9 +56,10 @@ function TemplateForm({
     initial
       ? initial.lines.map((l) => ({
           productId: l.productId,
-          qty: String(l.qty),
+          variantId: l.variantId,
+          qty: String(l.quantity),
         }))
-      : [{ productId: products[0]?.id ?? "", qty: "1" }],
+      : [{ productId: products[0]?.id ?? "", variantId: null, qty: "1" }],
   );
 
   const patch = (i: number, p: Partial<LineDraft>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
@@ -52,15 +70,32 @@ function TemplateForm({
     lines.length > 0 &&
     lines.every((l) => l.productId !== "" && isWhole(l.qty, 1));
 
+  const linesError = errorHint(
+    errors,
+    "lines",
+    ...lines.flatMap((_, i) => [`lines.${i}.productId`, `lines.${i}.variantId`, `lines.${i}.quantity`]),
+  );
+
   const save = () => {
-    onSave({
-      id: initial?.id ?? localId("tpl"),
+    const input = {
       name: name.trim(),
       validityDays: Number(validity),
       planId,
-      lines: lines.map((l) => ({ productId: l.productId, qty: Number(l.qty) })),
+      // The dialog has no payment-term control: keep the template's own, or default to the shortest term.
+      paymentTermId: initial?.paymentTermId ?? paymentTerms[0]?.id ?? "",
+      notes: initial?.notes ?? undefined,
+      lines: lines.map((l) => ({ productId: l.productId, variantId: l.variantId, quantity: Number(l.qty) })),
+    };
+    startTransition(async () => {
+      const result = initial ? await updateTemplateAction(initial.id, input) : await createTemplateAction(input);
+      if (!result.ok) {
+        setErrors(result.fieldErrors);
+        toast(result.error);
+        return;
+      }
+      toast(initial ? `Saved ${input.name}` : `Added ${input.name}`);
+      onOpenChange(false);
     });
-    onOpenChange(false);
   };
 
   return (
@@ -71,18 +106,18 @@ function TemplateForm({
       footer={
         <>
           <DialogClose className={btnSecondary}>Cancel</DialogClose>
-          <button type="button" className={btnPrimary} onClick={save} disabled={!valid}>
+          <button type="button" className={btnPrimary} onClick={save} disabled={!valid || pending}>
             {initial ? "Save template" : "Add template"}
           </button>
         </>
       }
     >
       <div className="space-y-4">
-        <Field label="Name" htmlFor="tpl-name">
+        <Field label="Name" htmlFor="tpl-name" hint={errorHint(errors, "name")}>
           <Input id="tpl-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Starter bundle" autoFocus />
         </Field>
         <div className="grid grid-cols-[120px_1fr] gap-3">
-          <Field label="Validity (days)" htmlFor="tpl-validity">
+          <Field label="Validity (days)" htmlFor="tpl-validity" hint={errorHint(errors, "validityDays")}>
             <Input
               id="tpl-validity"
               align="right"
@@ -91,7 +126,7 @@ function TemplateForm({
               onChange={(e) => setValidity(e.target.value)}
             />
           </Field>
-          <Field label="Plan" htmlFor="tpl-plan">
+          <Field label="Plan" htmlFor="tpl-plan" hint={errorHint(errors, "planId", "paymentTermId")}>
             <Dropdown
               id="tpl-plan"
               value={planId}
@@ -109,11 +144,12 @@ function TemplateForm({
             <button
               type="button"
               className={btnSecondary}
-              onClick={() => setLines((ls) => [...ls, { productId: products[0]?.id ?? "", qty: "1" }])}
+              onClick={() => setLines((ls) => [...ls, { productId: products[0]?.id ?? "", variantId: null, qty: "1" }])}
             >
               <Plus size={14} strokeWidth={2.5} /> Add line
             </button>
           </div>
+          {linesError ? <p className="text-[12px]">{linesError}</p> : null}
           {lines.length === 0 ? <p className="text-[12px] text-muted">Add at least one product line.</p> : null}
           <ScrollPanel className="max-h-[min(50vh,224px)]">
             <div className="space-y-2">
@@ -122,7 +158,7 @@ function TemplateForm({
                   <Dropdown
                     aria-label={`Line ${i + 1} product`}
                     value={l.productId}
-                    onChange={(v) => patch(i, { productId: v })}
+                    onChange={(v) => patch(i, { productId: v, variantId: null })}
                     options={products.map((p) => ({
                       value: p.id,
                       label: p.name,
@@ -153,20 +189,24 @@ function TemplateForm({
   );
 }
 
-/** Quotation templates table plus the template dialog. Changes are local state only. */
+/** Quotation templates table (server-paged) plus the template dialog. Saves go through the catalog server actions. */
 export function TemplatesView({
-  initial,
+  templates,
+  paging,
   products,
   plans,
+  paymentTerms,
 }: {
-  initial: QuotationTemplate[];
-  products: Product[];
-  plans: Plan[];
+  templates: TemplateData[];
+  paging: { total: number; page: number; pageSize: number };
+  products: TemplateProduct[];
+  plans: TemplatePlan[];
+  paymentTerms: TemplatePaymentTerm[];
 }) {
-  const [templates, setTemplates] = useState(initial);
-  const [editing, setEditing] = useState<QuotationTemplate | "new" | null>(null);
+  const [editing, setEditing] = useState<TemplateData | "new" | null>(null);
+  const [, startTransition] = useTransition();
 
-  const columns = useMemo<TableColumn<QuotationTemplate>[]>(
+  const columns = useMemo<TableColumn<TemplateData>[]>(
     () => [
       {
         accessorKey: "name",
@@ -190,19 +230,20 @@ export function TemplatesView({
       {
         id: "plan",
         header: "Plan",
-        accessorFn: (t) => plans.find((p) => p.id === t.planId)?.name ?? "",
+        enableSorting: false,
         cell: ({ row }) => {
           const p = plans.find((x) => x.id === row.original.planId);
-          return p ? (
-            <span>
-              {p.name}{" "}
-              <span className="text-muted tabular-nums">
-                · {formatMoney(p.price)} / {intervalUnit(p.interval)}
+          if (p) {
+            return (
+              <span>
+                {p.name}{" "}
+                <span className="text-muted tabular-nums">
+                  · {formatMoney(p.price)} / {intervalUnit(p.interval)}
+                </span>
               </span>
-            </span>
-          ) : (
-            <span className="text-muted">Deleted plan</span>
-          );
+            );
+          }
+          return row.original.planName ? <span>{row.original.planName}</span> : <span className="text-muted">Deleted plan</span>;
         },
       },
       {
@@ -211,37 +252,27 @@ export function TemplatesView({
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[320px] truncate text-muted">
-            {row.original.lines
-              .map((l) => `${products.find((p) => p.id === l.productId)?.name ?? "Deleted product"} ×${l.qty}`)
-              .join(", ")}
+            {row.original.lines.map((l) => `${l.productName} ×${l.quantity}`).join(", ")}
           </span>
         ),
       },
     ],
-    [plans, products],
+    [plans],
   );
 
-  const save = (t: QuotationTemplate) => {
-    const isNew = !templates.some((x) => x.id === t.id);
-    setTemplates((ts) => (isNew ? [...ts, t] : ts.map((x) => (x.id === t.id ? t : x))));
-    toast(isNew ? `Added ${t.name}` : `Saved ${t.name}`);
-  };
+  const remove = (t: TemplateData) =>
+    startTransition(async () => {
+      const result = await deleteTemplateAction(t.id);
+      toast(result.ok ? `Deleted ${t.name}` : result.error);
+    });
 
-  const remove = (t: QuotationTemplate) => {
-    setTemplates((ts) => ts.filter((x) => x.id !== t.id));
-    toast(`Deleted ${t.name}`);
-  };
-
+  const { total } = paging;
   return (
     <PageGrid
       width="wide"
       left={
         <>
-          <Intro
-            icon={<FileText />}
-            title="Templates"
-            subtitle={`${templates.length} template${templates.length === 1 ? "" : "s"}`}
-          />
+          <Intro icon={<FileText />} title="Templates" subtitle={`${total} template${total === 1 ? "" : "s"}`} />
           <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>
             <Plus size={14} strokeWidth={2.5} /> New template
           </button>
@@ -253,6 +284,7 @@ export function TemplatesView({
           aria-label="Quotation templates"
           data={templates}
           columns={columns}
+          paging={paging}
           getRowId={(t) => t.id}
           empty={{
             icon: <FileText />,
@@ -281,7 +313,7 @@ export function TemplatesView({
               initial={editing === "new" ? null : editing}
               products={products}
               plans={plans}
-              onSave={save}
+              paymentTerms={paymentTerms}
               onOpenChange={(o) => !o && setEditing(null)}
             />
           ) : null}

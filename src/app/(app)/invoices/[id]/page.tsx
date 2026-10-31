@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { InvoiceView } from "@/components/billing/InvoiceView";
-import { invoiceDetail } from "@/lib/mock/selectors-billing";
+import { loadInvoiceDetail } from "../detail";
 
 export default function Page(props: PageProps<"/invoices/[id]">) {
   return (
@@ -13,7 +13,7 @@ export default function Page(props: PageProps<"/invoices/[id]">) {
 
 async function Content({ params }: PageProps<"/invoices/[id]">) {
   const { id } = await params;
-  const detail = invoiceDetail(id);
+  const detail = await loadInvoiceDetail(id);
   if (!detail) notFound();
   return <InvoiceView detail={detail} />;
 }

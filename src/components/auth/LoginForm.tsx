@@ -5,19 +5,20 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { Field, Input } from "@/components/ui/Field";
 import { AuthCard } from "@/components/shell/AuthCard";
+import { authClient } from "./auth-client";
 import { SubmitButton } from "./SubmitButton";
-import { useFakeSubmit } from "./useFakeSubmit";
+import { usePending } from "./usePending";
 
 type Props = {
-  /** Lower-cased customer emails: these land in the portal, everyone else in the back office. */
-  customerEmails: string[];
+  /** Seeded demo logins: the buttons below fill in the email. */
+  adminDemo: string;
   staffDemo: string;
   customerDemo: string;
 };
 
-export function LoginForm({ customerEmails, staffDemo, customerDemo }: Props) {
+export function LoginForm({ adminDemo, staffDemo, customerDemo }: Props) {
   const router = useRouter();
-  const { pending, run } = useFakeSubmit();
+  const { pending, run } = usePending();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -29,8 +30,17 @@ export function LoginForm({ customerEmails, staffDemo, customerDemo }: Props) {
       return;
     }
     setError("");
-    const to = customerEmails.includes(email.trim().toLowerCase()) ? "/portal" : "/dashboard";
-    run(() => router.push(to));
+    void run(async () => {
+      const { data, error: err } = await authClient.signIn.email({ email: email.trim(), password });
+      if (err || !data) {
+        setError(err?.message || "Email or password is incorrect.");
+        return;
+      }
+      // The session's role decides where they land; the (app) layout sends customers to the portal anyway.
+      const role = (data.user as { role?: string }).role;
+      router.push(role === "customer" ? "/portal" : "/dashboard");
+      router.refresh();
+    });
   }
 
   return (
@@ -84,14 +94,24 @@ export function LoginForm({ customerEmails, staffDemo, customerDemo }: Props) {
         </SubmitButton>
       </form>
       <div className="mt-5 border-t border-white/[0.06] pt-4 text-[12px] text-muted">
-        <p>Demo accounts (any password works)</p>
+        <p>Demo accounts</p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
           <button
             type="button"
             className="cursor-pointer hover:text-text"
             onClick={() => {
+              setEmail(adminDemo);
+              setPassword("");
+            }}
+          >
+            Sign in as admin
+          </button>
+          <button
+            type="button"
+            className="cursor-pointer hover:text-text"
+            onClick={() => {
               setEmail(staffDemo);
-              setPassword("demo-password");
+              setPassword("");
             }}
           >
             Sign in as staff
@@ -101,7 +121,7 @@ export function LoginForm({ customerEmails, staffDemo, customerDemo }: Props) {
             className="cursor-pointer hover:text-text"
             onClick={() => {
               setEmail(customerDemo);
-              setPassword("demo-password");
+              setPassword("");
             }}
           >
             Sign in as a customer

@@ -3,18 +3,17 @@
 import { CircleCheck, House } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
-import { PaymentsIcon } from "@/components/shell/icons";
 import { Intro } from "@/components/ui/Intro";
 import { PageGrid } from "@/components/ui/PageGrid";
 import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { StatTile } from "@/components/ui/StatTile";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { PortalInvoice } from "@/lib/mock/selectors-portal";
 import { btnPrimary, btnSecondary, sectionTitle, surface } from "@/lib/ui";
 import { outstanding as outstandingOf, paidThisYear, projectedCharges, recentlyPaid, unpaidInvoices, upcomingCharges } from "./derive";
 import { InvoiceStatus } from "./InvoiceStatus";
 import { usePortal } from "./PortalProvider";
 import { QuotationCard } from "./QuotationCard";
+import type { PortalInvoice } from "./types";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -79,7 +78,7 @@ function BillingRow({ label, children }: { label: string; children: ReactNode })
 }
 
 export function PortalOverview() {
-  const { customer, contactName, subs, invoices, acceptQuotation, pay } = usePortal();
+  const { customer, contactName, today, subs, invoices, acceptQuotation, pay } = usePortal();
 
   // The quotation that was waiting when the page opened stays as the hero after it is signed; only a reload drops it.
   const [heroId] = useState(() => subs.find((s) => s.status === "quotation")?.id);
@@ -89,7 +88,7 @@ export function PortalOverview() {
   const overdueCount = unpaid.filter((i) => i.status === "overdue").length;
   const owed = outstandingOf(invoices);
   const next = upcomingCharges(subs)[0];
-  const charges = projectedCharges(subs, 90);
+  const charges = projectedCharges(subs, today, 90);
   const paid = recentlyPaid(invoices);
   const activeCount = subs.filter((s) => s.status === "active").length;
   const pausedCount = subs.filter((s) => s.status === "paused").length;
@@ -131,7 +130,7 @@ export function PortalOverview() {
             tone={overdueCount ? "bad" : owed ? "neutral" : "good"}
             delta={overdueCount ? `${overdueCount} overdue` : owed ? plural(unpaid.length, "open invoice") : "All paid up"}
           />
-          <StatTile index={3} label="Paid this year" value={paidThisYear(invoices)} format="money" delta={plural(paid.length, "paid invoice")} />
+          <StatTile index={3} label="Paid this year" value={paidThisYear(invoices, today)} format="money" delta={plural(paid.length, "paid invoice")} />
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,2fr)] grid-rows-[minmax(0,1fr)] gap-4">
@@ -140,7 +139,7 @@ export function PortalOverview() {
             {quotation ? (
               <>
                 <div className="min-h-0 flex-1">
-                  <QuotationCard sub={quotation} signer={contactName} onAccept={() => acceptQuotation(quotation)} />
+                  <QuotationCard sub={quotation} signer={contactName} today={today} onAccept={() => acceptQuotation(quotation)} />
                 </div>
                 {unpaid.length > 0 ? (
                   <Card title="Unpaid invoices" href="/portal/invoices?view=unpaid" delay={240} className="shrink-0">
@@ -220,6 +219,7 @@ export function PortalOverview() {
               </Card>
             ) : null}
 
+            {/* TODO(backend): no stored payment method yet, so that row is left out. */}
             {/* Content-sized, never stretched. Hidden on screens too short to hold it next to the cards above. */}
             <section
               className={`${surface} hidden shrink-0 animate-rise flex-col px-5 py-4 [@media(min-height:1100px)]:flex`}
@@ -233,17 +233,9 @@ export function PortalOverview() {
                 </Link>
               </div>
               <dl className="divide-y divide-white/[0.05] text-[13px]">
-                <BillingRow label="Payment method">
-                  <span className="inline-flex items-center gap-2">
-                    <span aria-hidden="true" className="grid size-6 place-items-center rounded-md bg-white/[0.06] text-muted">
-                      <PaymentsIcon size={14} />
-                    </span>
-                    UPI · sundaram@okhdfc
-                  </span>
-                </BillingRow>
                 <BillingRow label="Billing email">{customer.email}</BillingRow>
                 <BillingRow label="Billing address">
-                  {customer.name}, {customer.city}
+                  {customer.address || customer.name}
                 </BillingRow>
                 <BillingRow label="Next charge">
                   {next ? (

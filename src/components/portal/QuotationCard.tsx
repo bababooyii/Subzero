@@ -8,23 +8,32 @@ import { ScrollPanel } from "@/components/ui/ScrollPanel";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { toast } from "@/components/ui/toast";
 import { formatDate, formatMoney } from "@/lib/format";
-import { TODAY } from "@/lib/mock/clock";
-import type { PortalSub } from "@/lib/mock/selectors-portal";
 import { btnPrimary, btnSecondary, heroBody, heroFrame } from "@/lib/ui";
-import { INTERVAL_NOUN } from "./labels";
+import { intervalNoun } from "./labels";
+import type { PortalSub } from "./types";
 
-type Props = { sub: PortalSub; signer: string; onAccept: () => void };
+type Props = {
+  sub: PortalSub;
+  signer: string;
+  today: string;
+  /** Resolves true when the server accepted the quotation; false (error already toasted) puts the card back to unsigned. */
+  onAccept: () => Promise<boolean>;
+};
 
 const SIGN_SECONDS = 2;
 
 /**
  * The hero of the portal overview: a quotation waiting for the customer, in a hero card that fills its parent's height.
- * The signing box takes whatever height is left. Accepting draws the signature in, then confirms the subscription;
- * the card then stays in place in its signed state (same layout, so nothing moves).
+ * The signing box takes whatever height is left. Accepting draws the signature in, then calls the accept action;
+ * the card then stays in place in its signed state (same layout, so nothing moves), also in the moment before the
+ * refreshed subscription arrives. A rejected accept (e.g. an expired quote) resets the card.
  */
-export function QuotationCard({ sub, signer, onAccept }: Props) {
+export function QuotationCard({ sub, signer, today, onAccept }: Props) {
   const [signing, setSigning] = useState(false);
-  const accepted = sub.status !== "quotation";
+  // Set as soon as the server says yes, so the signed card holds until the refresh brings the new status.
+  const [signed, setSigned] = useState(false);
+  const accepted = signed || sub.status !== "quotation";
+  const validUntil = sub.quotationValidUntil ?? sub.expiryDate;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -36,7 +45,10 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
 
   function accept() {
     setSigning(true);
-    timer.current = setTimeout(onAccept, (SIGN_SECONDS + 0.8) * 1000);
+    timer.current = setTimeout(async () => {
+      if (await onAccept()) setSigned(true);
+      else setSigning(false);
+    }, (SIGN_SECONDS + 0.8) * 1000);
   }
 
   return (
@@ -46,7 +58,7 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
           <div className="min-w-0">
             <h3 className="truncate text-[15px] font-medium text-text">{sub.planName}</h3>
             <p className="mt-0.5 text-[12px] text-muted">
-              <span className="tabular-nums">{sub.number}</span> · Valid until {formatDate(sub.expiryDate)}
+              <span className="tabular-nums">{sub.number}</span> · Valid until {validUntil ? formatDate(validUntil) : "further notice"}
             </p>
           </div>
           {accepted ? <StatusDot status="active" label="Accepted" /> : <StatusDot status="quotation" />}
@@ -67,7 +79,7 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
           </ul>
         </ScrollPanel>
         <div className="mt-2 flex shrink-0 items-baseline justify-between">
-          <span className="text-[12px] text-muted">Total incl. tax, per {INTERVAL_NOUN[sub.interval]}</span>
+          <span className="text-[12px] text-muted">Total incl. tax, per {intervalNoun(sub.interval, sub.intervalCount)}</span>
           <span className="text-[22px] leading-7 font-medium tracking-tight text-text tabular-nums">{formatMoney(sub.amount)}</span>
         </div>
 
@@ -91,7 +103,7 @@ export function QuotationCard({ sub, signer, onAccept }: Props) {
           </div>
         </div>
         <p className="mt-1.5 shrink-0 truncate text-[12px] text-muted">
-          {accepted ? `Signed by ${signer} · ${formatDate(TODAY)}` : `Signing as ${signer}`}
+          {accepted ? `Signed by ${signer} · ${formatDate(today)}` : `Signing as ${signer}`}
         </p>
       </div>
       <div className="flex shrink-0 items-center justify-between gap-1.5 px-3 py-2.5">

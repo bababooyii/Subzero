@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { cn } from "@/helpers/classname-helper";
 import { formatDateTime } from "@/lib/format";
 
-export type TimelineEvent = { id: string; at: string; text: string };
+export type TimelineEvent = { id: string; at: string; text: string; /** Where the event's record lives; the sentence links there. */ href?: string };
 
 type Props = { events: TimelineEvent[]; className?: string; empty?: string };
 
@@ -21,7 +22,15 @@ export function Timeline({ events, className, empty = "No activity yet." }: Prop
           ) : null}
           <span aria-hidden="true" className="absolute top-[5px] left-0 size-[7px] rounded-full bg-white/25" />
           <p className="text-[12px] text-muted tabular-nums">{formatDateTime(e.at)}</p>
-          <p className="text-[13px] text-text">{e.text}</p>
+          <p className="text-[13px] text-text">
+            {e.href ? (
+              <Link href={e.href} className="outline-none hover:underline focus-visible:underline">
+                {e.text}
+              </Link>
+            ) : (
+              e.text
+            )}
+          </p>
         </li>
       ))}
     </ol>
