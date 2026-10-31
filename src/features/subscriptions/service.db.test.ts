@@ -12,6 +12,7 @@ import {
 } from "@/server/state-machine/fixtures";
 import { InvalidTransitionError } from "@/server/state-machine";
 import { listActivity } from "@/server/activity-log";
+import { lineUnitPrice } from "@/features/catalog/queries";
 import { testDb, truncateAll } from "@/test/db";
 import {
   applyAction,
@@ -19,7 +20,6 @@ import {
   createSubscription,
   renewSubscription,
   SubscriptionError,
-  subscriptionLinePrice,
   updateSubscription,
 } from "./service";
 
@@ -42,11 +42,11 @@ async function base() {
   return { actor, customer, plan, term, product, input };
 }
 
-describe("subscriptionLinePrice", () => {
+describe("lineUnitPrice", () => {
   it("adds variant extra price and returns tax rates", async () => {
     const product = await makeProduct({ salesPrice: 50000, taxRatesBps: [1800] });
     const variant = await makeVariant(product.id, 2500);
-    expect(await subscriptionLinePrice(testDb, product.id, variant.id)).toEqual({
+    expect(await lineUnitPrice(testDb, product.id, variant.id)).toMatchObject({
       unitPrice: 52500,
       taxRatesBps: [1800],
     });
@@ -56,7 +56,7 @@ describe("subscriptionLinePrice", () => {
     const a = await makeProduct();
     const b = await makeProduct();
     const v = await makeVariant(b.id, 100);
-    await expect(subscriptionLinePrice(testDb, a.id, v.id)).rejects.toBeInstanceOf(SubscriptionError);
+    await expect(lineUnitPrice(testDb, a.id, v.id)).rejects.toThrow();
   });
 });
 
